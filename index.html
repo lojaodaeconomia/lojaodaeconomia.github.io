@@ -880,11 +880,12 @@
         <div class="panel" style="padding:14px 18px;margin-bottom:14px">
           <div class="flex items-center gap-12" style="flex-wrap:wrap">
             <strong style="font-size:13px">📍 Estou vendendo no:</strong>
-            <div class="pay-buttons" style="grid-template-columns:1fr 1fr;max-width:340px;margin:0;flex:1">
+            <div class="pay-buttons" style="grid-template-columns:1fr 1fr;max-width:340px;margin:0">
               <button class="pay-btn active" data-local="caminhao" onclick="setLocalPdv('caminhao',this)"><span class="ico">🚚</span>Caminhão</button>
               <button class="pay-btn" data-local="loja" onclick="setLocalPdv('loja',this)"><span class="ico">🏪</span>Loja Física</button>
             </div>
-            <span class="text-mute" style="font-size:11.5px">Cada venda guarda a origem — útil pra trocas.</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-primary" onclick="abrirCaixa()">🧾 Fechar caixa / Relatório do dia</button>
           </div>
         </div>
 
@@ -1539,6 +1540,32 @@
   </div>
 </div>
 
+<div class="modal-bg" id="modalCaixa">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head"><h3>🧾 Fechamento de Caixa</h3><button class="close-x" onclick="closeModal('modalCaixa')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid cols-3" style="margin-bottom:16px">
+        <div class="field"><label>Dia</label><input type="date" id="cxData" onchange="renderCaixa()"/></div>
+        <div class="field"><label>Canal</label>
+          <select id="cxLocal" onchange="renderCaixa()">
+            <option value="todos">Caminhão + Loja</option>
+            <option value="caminhao">🚚 Só Caminhão</option>
+            <option value="loja">🏪 Só Loja</option>
+          </select>
+        </div>
+        <div class="field"><label>Operador(a)</label><input id="cxOperador" value="Hiellen Lima"/></div>
+      </div>
+      <div id="caixaReport"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('modalCaixa')">Fechar</button>
+      <button class="btn btn-ghost" onclick="baixarCaixa()">📥 Baixar (.txt)</button>
+      <button class="btn wa-btn" onclick="caixaWhatsapp()">📲 WhatsApp</button>
+      <button class="btn btn-primary" onclick="imprimirCaixa()">🖨️ Imprimir / PDF</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -2096,6 +2123,129 @@ function finalizarVenda(){
   carrinho=[];
   save();renderPdv();
   toast(`Venda ${LOCAIS[localPdv].emoji} registrada: ${fmtBR(total)} ✅`,'success');
+}
+
+/* ================================================================
+   FECHAMENTO DE CAIXA (relatório do dia, pronto)
+================================================================ */
+function abrirCaixa(){
+  document.getElementById('cxData').value=hoje();
+  document.getElementById('cxLocal').value=localPdv;
+  renderCaixa();
+  document.getElementById('modalCaixa').classList.add('show');
+}
+function computeCaixa(){
+  const data=document.getElementById('cxData').value;
+  const filtro=document.getElementById('cxLocal').value;
+  let vendas=S.vendas.filter(v=>v.data===data);
+  if(filtro!=='todos')vendas=vendas.filter(v=>(v.local||'caminhao')===filtro);
+  const total=vendas.reduce((s,v)=>s+v.total,0);
+  const itens=vendas.reduce((s,v)=>s+v.itens.reduce((x,i)=>x+i.qt,0),0);
+  const pg={pix:{v:0,n:0},dinheiro:{v:0,n:0},cartao:{v:0,n:0}};
+  vendas.forEach(v=>{const k=pg[v.pagamento]?v.pagamento:'dinheiro';pg[k].v+=v.total;pg[k].n++;});
+  // top produtos
+  const pc={};
+  vendas.forEach(v=>v.itens.forEach(i=>pc[i.nome]=(pc[i.nome]||0)+i.qt));
+  const top=Object.entries(pc).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  // por canal
+  const canalCam=vendas.filter(v=>(v.local||'caminhao')==='caminhao');
+  const canalLoja=vendas.filter(v=>v.local==='loja');
+  // local label
+  let localLabel;
+  if(filtro==='caminhao')localLabel='🚚 Caminhão — '+(S.rota[data]||'cidade não definida');
+  else if(filtro==='loja')localLabel='🏪 '+(S.config?.lojaNome||'Loja Física');
+  else localLabel='🚚 Caminhão + 🏪 Loja';
+  return {data,filtro,vendas,total,itens,pg,top,localLabel,
+    nVendas:vendas.length,ticket:vendas.length?total/vendas.length:0,
+    recCam:canalCam.reduce((s,v)=>s+v.total,0),nCam:canalCam.length,
+    recLoja:canalLoja.reduce((s,v)=>s+v.total,0),nLoja:canalLoja.length};
+}
+function renderCaixa(){
+  const c=computeCaixa();
+  const pct=v=>c.total?((v/c.total)*100).toFixed(0)+'%':'0%';
+  const linhasCanal=(c.filtro==='todos')?`
+    <div class="divider"></div>
+    <div class="flex justify-between" style="font-size:12.5px;margin-bottom:4px"><span>🚚 Caminhão</span><span><strong>${fmtBR(c.recCam)}</strong> · ${c.nCam} vendas</span></div>
+    <div class="flex justify-between" style="font-size:12.5px"><span>🏪 Loja Física</span><span><strong>${fmtBR(c.recLoja)}</strong> · ${c.nLoja} vendas</span></div>`:'';
+  document.getElementById('caixaReport').innerHTML=`
+    <div style="border:2px dashed var(--cinza-borda);border-radius:12px;padding:18px">
+      <div style="text-align:center;border-bottom:2px solid var(--azul);padding-bottom:10px;margin-bottom:12px">
+        <div style="font-family:'Poppins';font-weight:800;font-size:18px;color:var(--azul)">📦 LOJÃO DA ECONOMIA</div>
+        <div style="font-size:12px;color:var(--cinza-mute)">Fechamento de Caixa</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--cinza-mute);margin-bottom:14px">
+        <div class="flex justify-between"><span>📅 Dia</span><strong style="color:var(--cinza-texto)">${dataBR(c.data)} (${diaSem(c.data)})</strong></div>
+        <div class="flex justify-between"><span>📍 Canal</span><strong style="color:var(--cinza-texto)">${c.localLabel}</strong></div>
+        <div class="flex justify-between"><span>👤 Operador(a)</span><strong style="color:var(--cinza-texto)">${document.getElementById('cxOperador').value}</strong></div>
+      </div>
+
+      <div style="background:linear-gradient(135deg,var(--azul),var(--azul-claro));color:#fff;border-radius:10px;padding:16px;text-align:center;margin-bottom:14px">
+        <div style="font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:1px">Total faturado no caixa</div>
+        <div style="font-family:'Poppins';font-size:30px;font-weight:800">${fmtBR(c.total)}</div>
+      </div>
+
+      <div class="row-3" style="margin-bottom:14px;gap:10px">
+        <div style="background:#FAFBFE;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:var(--cinza-mute)">Vendas</div><div style="font-family:'Poppins';font-weight:700;font-size:18px">${c.nVendas}</div></div>
+        <div style="background:#FAFBFE;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:var(--cinza-mute)">Ticket médio</div><div style="font-family:'Poppins';font-weight:700;font-size:18px">${fmtBR(c.ticket)}</div></div>
+        <div style="background:#FAFBFE;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:var(--cinza-mute)">Itens</div><div style="font-family:'Poppins';font-weight:700;font-size:18px">${c.itens}</div></div>
+      </div>
+
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">💳 Formas de pagamento</div>
+      <table class="tbl" style="margin-bottom:14px">
+        <tbody>
+          <tr><td>📱 PIX</td><td class="text-right">${c.pg.pix.n}x</td><td class="text-right"><strong>${fmtBR(c.pg.pix.v)}</strong></td><td class="text-right">${pct(c.pg.pix.v)}</td></tr>
+          <tr><td>💵 Dinheiro</td><td class="text-right">${c.pg.dinheiro.n}x</td><td class="text-right"><strong>${fmtBR(c.pg.dinheiro.v)}</strong></td><td class="text-right">${pct(c.pg.dinheiro.v)}</td></tr>
+          <tr><td>💳 Cartão</td><td class="text-right">${c.pg.cartao.n}x</td><td class="text-right"><strong>${fmtBR(c.pg.cartao.v)}</strong></td><td class="text-right">${pct(c.pg.cartao.v)}</td></tr>
+        </tbody>
+      </table>
+      ${linhasCanal}
+
+      <div style="font-weight:700;font-size:13px;margin:14px 0 8px">🏆 Produtos mais vendidos</div>
+      ${c.top.length?c.top.map((t,i)=>`<div class="flex justify-between" style="font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--cinza-borda)"><span>${i+1}. ${t[0]}</span><strong>${t[1]} un.</strong></div>`).join(''):'<div class="text-mute" style="font-size:12px">Nenhuma venda neste dia/canal.</div>'}
+
+      <div style="text-align:center;font-size:10.5px;color:var(--cinza-suave);margin-top:16px">Gerado pelo Painel de Gestão · ${new Date().toLocaleString('pt-BR')}</div>
+    </div>`;
+}
+function caixaTexto(){
+  const c=computeCaixa();
+  const pct=v=>c.total?((v/c.total)*100).toFixed(0)+'%':'0%';
+  let t=`*📦 LOJÃO DA ECONOMIA*\n*Fechamento de Caixa*\n\n`;
+  t+=`📅 ${dataBR(c.data)} (${diaSem(c.data)})\n📍 ${c.localLabel}\n👤 ${document.getElementById('cxOperador').value}\n`;
+  t+=`\n*💰 TOTAL: ${fmtBR(c.total)}*\n`;
+  t+=`🛒 ${c.nVendas} vendas · 🎟️ ticket ${fmtBR(c.ticket)} · 📦 ${c.itens} itens\n`;
+  t+=`\n*Pagamentos:*\n📱 PIX: ${fmtBR(c.pg.pix.v)} (${pct(c.pg.pix.v)})\n💵 Dinheiro: ${fmtBR(c.pg.dinheiro.v)} (${pct(c.pg.dinheiro.v)})\n💳 Cartão: ${fmtBR(c.pg.cartao.v)} (${pct(c.pg.cartao.v)})\n`;
+  if(c.filtro==='todos')t+=`\n🚚 Caminhão: ${fmtBR(c.recCam)} · 🏪 Loja: ${fmtBR(c.recLoja)}\n`;
+  if(c.top.length){t+=`\n*Mais vendidos:*\n`;c.top.forEach((x,i)=>t+=`${i+1}. ${x[0]} — ${x[1]} un.\n`);}
+  t+=`\n_Gerado em ${new Date().toLocaleString('pt-BR')}_`;
+  return t;
+}
+function baixarCaixa(){
+  const c=computeCaixa();
+  const blob=new Blob([caixaTexto().replace(/\*/g,'').replace(/_/g,'')],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`caixa-${c.data}-${c.filtro}.txt`;a.click();
+  toast('Relatório baixado','success');
+}
+function caixaWhatsapp(){
+  window.open('https://wa.me/?text='+encodeURIComponent(caixaTexto()),'_blank');
+}
+function imprimirCaixa(){
+  const html=document.getElementById('caixaReport').innerHTML;
+  const w=window.open('','_blank','width=480,height=700');
+  w.document.write(`<html><head><title>Fechamento de Caixa</title>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1E293B;padding:16px;max-width:420px;margin:auto;font-size:13px}
+      .flex{display:flex}.justify-between{justify-content:space-between}.text-right{text-align:right}.text-mute{color:#64748B}
+      .divider{height:1px;background:#E5E9F2;margin:10px 0}
+      table{width:100%;border-collapse:collapse}td{padding:6px 4px;border-bottom:1px solid #eee}
+      .row-3{display:flex;gap:8px}.row-3>div{flex:1}
+      @media print{button{display:none}}
+    </style></head><body>${html}
+    <div style="text-align:center;margin-top:16px"><button onclick="window.print()" style="padding:10px 20px;font-size:14px;background:#1B4FA0;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button></div>
+    </body></html>`);
+  w.document.close();
+  setTimeout(()=>{try{w.print()}catch(e){}},400);
 }
 
 /* ================================================================
