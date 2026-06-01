@@ -614,7 +614,27 @@
 </head>
 <body>
 
-<div class="app">
+<!-- ============================ LOGIN ============================ -->
+<div id="loginScreen" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,#0E2A5C,#1B4FA0);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:18px;max-width:380px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+    <div style="text-align:center;margin-bottom:22px">
+      <div style="font-size:46px">📦</div>
+      <div style="font-family:'Poppins';font-weight:800;font-size:22px;color:#1B4FA0">Lojão da Economia</div>
+      <div style="color:#64748B;font-size:13px">Acesse com seu usuário</div>
+    </div>
+    <div class="field" style="margin-bottom:12px"><label>Usuário</label><input id="loginUser" autocomplete="username" placeholder="ex: hiellen" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()"/></div>
+    <div class="field" style="margin-bottom:8px"><label>Senha</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••" onkeydown="if(event.key==='Enter')fazerLogin()"/></div>
+    <div id="loginErro" style="color:#E11D48;font-size:12.5px;min-height:18px;margin-bottom:6px"></div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px" onclick="fazerLogin()">Entrar →</button>
+    <div style="margin-top:16px;font-size:11px;color:#94A3B8;text-align:center;line-height:1.6">
+      <strong>Logins de teste:</strong><br>
+      hiellen / hiellen123 (gestão total) · samanta / samanta123 (gestora)<br>
+      antoniodiego · baturite · caminhao — senha <strong>caixa123</strong>
+    </div>
+  </div>
+</div>
+
+<div class="app" style="display:none">
 
   <!-- ============================ SIDEBAR ============================ -->
   <aside class="sidebar">
@@ -639,8 +659,9 @@
       <div class="nav-label">Comercial</div>
       <div class="nav-item" data-page="vendas"><span class="ico">💰</span> Vendas</div>
       <div class="nav-item" data-page="produtos"><span class="ico">🏷️</span> Produtos</div>
-      <div class="nav-item" data-page="estoque-caminhao"><span class="ico">🚚</span> Estoque Caminhão <span class="nav-badge" id="badgeEstCam">0</span></div>
-      <div class="nav-item" data-page="estoque-loja"><span class="ico">🏪</span> Estoque Loja <span class="nav-badge" id="badgeEstLoja">0</span></div>
+      <div class="nav-item" data-page="estoque" data-unidade="loja1"><span class="ico">🏪</span> Estoque Antônio Diego <span class="nav-badge" id="badgeEst-loja1">0</span></div>
+      <div class="nav-item" data-page="estoque" data-unidade="loja2"><span class="ico">🏪</span> Estoque Baturité <span class="nav-badge" id="badgeEst-loja2">0</span></div>
+      <div class="nav-item" data-page="estoque" data-unidade="caminhao"><span class="ico">🚚</span> Estoque Caminhão <span class="nav-badge" id="badgeEst-caminhao">0</span></div>
       <div class="nav-item" data-page="transferencias"><span class="ico">🔄</span> Transferências</div>
       <div class="nav-item" data-page="trocas"><span class="ico">↩️</span> Trocas & Devoluções</div>
       <div class="nav-item" data-page="clientes"><span class="ico">❤️</span> Clientes & Fidelidade</div>
@@ -655,17 +676,20 @@
 
     <div class="nav-section">
       <div class="nav-label">Estrutura</div>
+      <div class="nav-item" data-page="combustivel"><span class="ico">⛽</span> Combustível</div>
       <div class="nav-item" data-page="equipe"><span class="ico">👥</span> Equipe</div>
       <div class="nav-item" data-page="caminhao"><span class="ico">🚚</span> Caminhão</div>
+      <div class="nav-item" data-page="usuarios"><span class="ico">🔑</span> Usuários</div>
       <div class="nav-item" data-page="config"><span class="ico">⚙️</span> Configurações</div>
     </div>
 
     <div class="user-card">
-      <div class="avatar">HL</div>
+      <div class="avatar" id="userAvatar">HL</div>
       <div class="user-info">
-        <strong>Hiellen Lima</strong>
-        <span>Gestora</span>
+        <strong id="userNome">Hiellen Lima</strong>
+        <span id="userRole">Gestora</span>
       </div>
+      <button class="icon-btn" title="Sair" onclick="logout()" style="margin-left:auto">🚪</button>
     </div>
   </aside>
 
@@ -879,11 +903,8 @@
 
         <div class="panel" style="padding:14px 18px;margin-bottom:14px">
           <div class="flex items-center gap-12" style="flex-wrap:wrap">
-            <strong style="font-size:13px">📍 Estou vendendo no:</strong>
-            <div class="pay-buttons" style="grid-template-columns:1fr 1fr;max-width:340px;margin:0">
-              <button class="pay-btn active" data-local="caminhao" onclick="setLocalPdv('caminhao',this)"><span class="ico">🚚</span>Caminhão</button>
-              <button class="pay-btn" data-local="loja" onclick="setLocalPdv('loja',this)"><span class="ico">🏪</span>Loja Física</button>
-            </div>
+            <strong style="font-size:13px">📍 Caixa da unidade:</strong>
+            <div class="pay-buttons" id="pdvLocalBtns" style="grid-template-columns:repeat(3,1fr);max-width:520px;margin:0"></div>
             <div style="flex:1"></div>
             <button class="btn btn-primary" onclick="abrirCaixa()">🧾 Fechar caixa / Relatório do dia</button>
           </div>
@@ -898,6 +919,7 @@
                   <div class="panel-sub">Tudo a R$10, exceto destaque ⭐</div>
                 </div>
                 <div class="panel-actions">
+                  <input type="text" id="pdvBarcode" placeholder="📷 Bipar código de barras…" onkeydown="if(event.key==='Enter')bipBarcode()" style="padding:7px 12px;border:1px solid var(--cinza-borda);border-radius:8px;font-size:12.5px"/>
                   <input type="text" id="pdvSearch" placeholder="Buscar produto…" style="padding:7px 12px;border:1px solid var(--cinza-borda);border-radius:8px;font-size:12.5px"/>
                 </div>
               </div>
@@ -923,6 +945,10 @@
                   <button class="pay-btn active" data-pay="pix"><span class="ico">📱</span>PIX</button>
                   <button class="pay-btn" data-pay="dinheiro"><span class="ico">💵</span>Dinheiro</button>
                   <button class="pay-btn" data-pay="cartao"><span class="ico">💳</span>Cartão</button>
+                </div>
+                <div class="field" id="parcelasWrap" style="display:none;margin-bottom:10px">
+                  <label>Parcelas (até 10x sem juros)</label>
+                  <select id="pdvParcelas" onchange="renderCart()"></select>
                 </div>
                 <button class="btn btn-success" style="width:100%;justify-content:center;padding:12px" onclick="finalizarVenda()">✅ Finalizar Venda</button>
                 <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;margin-top:6px" onclick="esvaziarCarrinho()">🗑️ Cancelar</button>
@@ -1113,7 +1139,7 @@
           </div>
           <div class="scroll-x">
             <table class="tbl" id="tblProdutos">
-              <thead><tr><th>Produto</th><th>Categoria</th><th>Custo</th><th>Preço</th><th>Margem</th><th>🚚 Caminhão</th><th>🏪 Loja</th><th>Total</th><th>Vendidos (mês)</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Produto</th><th>Cód. barras</th><th>Custo</th><th>Preço</th><th>🏪 A.Diego</th><th>🏪 Baturité</th><th>🚚 Caminhão</th><th>Total</th><th>Vend.</th><th>Ações</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1131,24 +1157,14 @@
         </div>
       </section>
 
-      <!-- ============================ ESTOQUE CAMINHÃO ============================ -->
-      <section class="page" id="page-estoque-caminhao">
+      <!-- ============================ ESTOQUE (genérico por unidade) ============================ -->
+      <section class="page" id="page-estoque">
         <div class="tabs">
-          <div class="tab active" onclick="switchEstTab('caminhao','lista',this)">📋 Posição de Estoque</div>
-          <div class="tab" onclick="switchEstTab('caminhao','alimentar',this)">➕ Alimentar Estoque</div>
+          <div class="tab active" id="estTabLista" onclick="switchEstTab('lista',this)">📋 Posição de Estoque</div>
+          <div class="tab" id="estTabAlimentar" onclick="switchEstTab('alimentar',this)">➕ Alimentar Estoque</div>
         </div>
-        <div id="estCaminhao-lista" class="est-tab-content"></div>
-        <div id="estCaminhao-alimentar" class="est-tab-content" style="display:none"></div>
-      </section>
-
-      <!-- ============================ ESTOQUE LOJA ============================ -->
-      <section class="page" id="page-estoque-loja">
-        <div class="tabs">
-          <div class="tab active" onclick="switchEstTab('loja','lista',this)">📋 Posição de Estoque</div>
-          <div class="tab" onclick="switchEstTab('loja','alimentar',this)">➕ Alimentar Estoque</div>
-        </div>
-        <div id="estLoja-lista" class="est-tab-content"></div>
-        <div id="estLoja-alimentar" class="est-tab-content" style="display:none"></div>
+        <div id="est-lista" class="est-tab-content"></div>
+        <div id="est-alimentar" class="est-tab-content" style="display:none"></div>
       </section>
 
       <!-- ============================ TRANSFERÊNCIAS ============================ -->
@@ -1161,8 +1177,8 @@
           <div class="panel">
             <div class="panel-head"><div><div class="panel-title"><span class="ico">📦➡️📦</span> Nova transferência</div><div class="panel-sub">Origem → Destino</div></div></div>
             <div class="form-grid">
-              <div class="field"><label>De (origem)</label><select id="trDe" onchange="renderTransferProdOptions()"><option value="loja">🏪 Loja Física</option><option value="caminhao">🚚 Caminhão</option></select></div>
-              <div class="field"><label>Para (destino)</label><select id="trPara"><option value="caminhao">🚚 Caminhão</option><option value="loja">🏪 Loja Física</option></select></div>
+              <div class="field"><label>De (origem)</label><select id="trDe" onchange="renderTransferProdOptions()"><option value="loja1">🏪 Loja Antônio Diego</option><option value="loja2">🏪 Loja Baturité</option><option value="caminhao">🚚 Caminhão</option></select></div>
+              <div class="field"><label>Para (destino)</label><select id="trPara"><option value="caminhao">🚚 Caminhão</option><option value="loja1">🏪 Loja Antônio Diego</option><option value="loja2">🏪 Loja Baturité</option></select></div>
               <div class="field"><label>Data</label><input type="date" id="trData"/></div>
               <div class="field"><label>Produto</label><select id="trProd"></select></div>
               <div class="field"><label>Quantidade</label><input type="number" id="trQt" value="1" min="1"/></div>
@@ -1201,8 +1217,8 @@
               <div class="field"><label>Data</label><input type="date" id="tkData"/></div>
               <div class="field"><label>Tipo</label><select id="tkTipo"><option value="troca">🔁 Troca (volta produto, leva outro)</option><option value="devolucao">💸 Devolução (volta produto e dinheiro)</option></select></div>
               <div class="field"><label>Produto devolvido</label><select id="tkProd"></select></div>
-              <div class="field"><label>Onde foi comprado</label><select id="tkLocal"><option value="caminhao">🚚 Caminhão</option><option value="loja">🏪 Loja Física</option></select></div>
-              <div class="field"><label>Volta pro estoque de</label><select id="tkVolta"><option value="loja">🏪 Loja Física</option><option value="caminhao">🚚 Caminhão</option></select></div>
+              <div class="field"><label>Onde foi comprado</label><select id="tkLocal"><option value="caminhao">🚚 Caminhão</option><option value="loja1">🏪 Loja Antônio Diego</option><option value="loja2">🏪 Loja Baturité</option></select></div>
+              <div class="field"><label>Volta pro estoque de</label><select id="tkVolta"><option value="loja1">🏪 Loja Antônio Diego</option><option value="loja2">🏪 Loja Baturité</option><option value="caminhao">🚚 Caminhão</option></select></div>
               <div class="field"><label>Quantidade</label><input type="number" id="tkQt" value="1" min="1"/></div>
               <div class="field" style="grid-column:span 2"><label>Motivo</label>
                 <select id="tkMotivo"><option>Defeito</option><option>Tamanho/cor errado</option><option>Desistência</option><option>Veio errado</option><option>Outro</option></select>
@@ -1221,6 +1237,60 @@
           <div class="scroll-x">
             <table class="tbl" id="tblTrocas">
               <thead><tr><th>Data</th><th>Tipo</th><th>Produto</th><th>Qtd</th><th>Comprado em</th><th>Voltou p/</th><th>Motivo</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ COMBUSTÍVEL ============================ -->
+      <section class="page" id="page-combustivel">
+        <div class="alert-box info">
+          <span style="font-size:18px">⛽</span>
+          <div>Aba do <strong>motorista</strong>. Lance o abastecimento do dia e anexe o comprovante do pagamento. Os valores entram automaticamente nas despesas do caminhão.</div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi red"><div class="kpi-head"><div class="kpi-label">Combustível no mês</div><div class="kpi-icon">⛽</div></div><div class="kpi-value" id="cbMes">R$ 0</div></div>
+          <div class="kpi"><div class="kpi-head"><div class="kpi-label">Litros no mês</div><div class="kpi-icon">🛢️</div></div><div class="kpi-value" id="cbLitros">0 L</div></div>
+          <div class="kpi gold"><div class="kpi-head"><div class="kpi-label">Preço médio/L</div><div class="kpi-icon">💲</div></div><div class="kpi-value" id="cbPreco">R$ 0</div></div>
+          <div class="kpi green"><div class="kpi-head"><div class="kpi-label">Abastecimentos</div><div class="kpi-icon">🔢</div></div><div class="kpi-value" id="cbQtd">0</div></div>
+        </div>
+        <div class="row-2">
+          <div class="panel">
+            <div class="panel-head"><div><div class="panel-title"><span class="ico">✍️</span> Lançar abastecimento</div></div></div>
+            <div class="form-grid">
+              <div class="field"><label>Data</label><input type="date" id="cbData"/></div>
+              <div class="field"><label>Valor pago (R$)</label><input type="number" id="cbValor" step="0.01" placeholder="240.00"/></div>
+              <div class="field"><label>Litros (opcional)</label><input type="number" id="cbLts" step="0.1" placeholder="39"/></div>
+              <div class="field"><label>KM atual (opcional)</label><input type="number" id="cbKm" placeholder="68420"/></div>
+              <div class="field" style="grid-column:span 2"><label>Posto / observação</label><input id="cbObs" placeholder="Ex: Posto Ipiranga BR-116"/></div>
+              <div class="field" style="grid-column:span 2"><label>📎 Comprovante (foto ou PDF)</label><input type="file" accept="image/*,application/pdf" onchange="previewComprovante(this)"/><div id="cbPrev" style="margin-top:8px"></div></div>
+            </div>
+            <button class="btn btn-success mt-12" style="padding:11px 20px" onclick="salvarAbastecimento()">⛽ Registrar abastecimento</button>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><div class="panel-title"><span class="ico">🗂️</span> Histórico de abastecimentos</div></div></div>
+            <div class="scroll-x">
+              <table class="tbl" id="tblAbastec">
+                <thead><tr><th>Data</th><th>Valor</th><th>Litros</th><th>KM</th><th>Posto</th><th>Compr.</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ USUÁRIOS ============================ -->
+      <section class="page" id="page-usuarios">
+        <div class="alert-box info"><span style="font-size:18px">🔑</span><div>Apenas <strong>administradores</strong> (você e a Hiellen) gerenciam logins. Cada caixa só vê e movimenta a própria unidade.</div></div>
+        <div class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title"><span class="ico">🔑</span> Logins do sistema</div><div class="panel-sub">Usuário, perfil e unidade</div></div>
+            <div class="panel-actions"><button class="btn btn-primary btn-sm" onclick="openModal('modalNovoUsuario')">+ Novo login</button></div>
+          </div>
+          <div class="scroll-x">
+            <table class="tbl" id="tblUsuarios">
+              <thead><tr><th>Nome</th><th>Usuário</th><th>Senha</th><th>Perfil</th><th>Unidade</th><th>Ação</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1428,10 +1498,12 @@
         <div class="field"><label>Emoji</label><input id="npEmoji" value="🏷️"/></div>
         <div class="field"><label>Custo (R$)</label><input type="number" id="npCusto" step="0.01" value="4.50"/></div>
         <div class="field"><label>Preço de venda (R$)</label><input type="number" id="npPreco" step="0.01" value="10.00"/></div>
-        <div class="field"><label>🚚 Estoque inicial Caminhão</label><input type="number" id="npEstCam" value="30"/></div>
-        <div class="field"><label>🏪 Estoque inicial Loja</label><input type="number" id="npEstLoja" value="20"/></div>
+        <div class="field"><label>Código de barras</label><input id="npCB" placeholder="bipe ou digite"/></div>
         <div class="field"><label>Estoque mínimo (alerta)</label><input type="number" id="npMin" value="10"/></div>
-        <div class="field"><label>Foto do produto (opcional)</label><input type="file" id="npFoto" accept="image/*"/></div>
+        <div class="field"><label>🏪 Estoque A.Diego</label><input type="number" id="npEstL1" value="20"/></div>
+        <div class="field"><label>🏪 Estoque Baturité</label><input type="number" id="npEstL2" value="20"/></div>
+        <div class="field"><label>🚚 Estoque Caminhão</label><input type="number" id="npEstCam" value="20"/></div>
+        <div class="field"><label>Foto (opcional)</label><input type="file" id="npFoto" accept="image/*"/></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1540,17 +1612,45 @@
   </div>
 </div>
 
+<div class="modal-bg" id="modalNovoUsuario">
+  <div class="modal">
+    <div class="modal-head"><h3>Novo Login</h3><button class="close-x" onclick="closeModal('modalNovoUsuario')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field" style="grid-column:span 2"><label>Nome completo</label><input id="nuNome"/></div>
+        <div class="field"><label>Usuário (login)</label><input id="nuUser" placeholder="ex: joao"/></div>
+        <div class="field"><label>Senha</label><input id="nuSenha"/></div>
+        <div class="field"><label>Perfil</label>
+          <select id="nuRole" onchange="document.getElementById('nuUniWrap').style.display=this.value==='caixa'?'block':'none'">
+            <option value="caixa">Caixa (uma unidade)</option>
+            <option value="gestor">Gestor(a)</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div class="field" id="nuUniWrap"><label>Unidade do caixa</label>
+          <select id="nuUni"><option value="loja1">🏪 Loja Antônio Diego</option><option value="loja2">🏪 Loja Baturité</option><option value="caminhao">🚚 Caminhão</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('modalNovoUsuario')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarUsuario()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modalCaixa">
   <div class="modal" style="max-width:640px">
     <div class="modal-head"><h3>🧾 Fechamento de Caixa</h3><button class="close-x" onclick="closeModal('modalCaixa')">×</button></div>
     <div class="modal-body">
       <div class="form-grid cols-3" style="margin-bottom:16px">
         <div class="field"><label>Dia</label><input type="date" id="cxData" onchange="renderCaixa()"/></div>
-        <div class="field"><label>Canal</label>
+        <div class="field"><label>Unidade</label>
           <select id="cxLocal" onchange="renderCaixa()">
-            <option value="todos">Caminhão + Loja</option>
-            <option value="caminhao">🚚 Só Caminhão</option>
-            <option value="loja">🏪 Só Loja</option>
+            <option value="todos">Todas as unidades</option>
+            <option value="loja1">🏪 Loja Antônio Diego</option>
+            <option value="loja2">🏪 Loja Baturité</option>
+            <option value="caminhao">🚚 Caminhão</option>
           </select>
         </div>
         <div class="field"><label>Operador(a)</label><input id="cxOperador" value="Hiellen Lima"/></div>
@@ -1559,9 +1659,10 @@
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('modalCaixa')">Fechar</button>
-      <button class="btn btn-ghost" onclick="baixarCaixa()">📥 Baixar (.txt)</button>
-      <button class="btn wa-btn" onclick="caixaWhatsapp()">📲 WhatsApp</button>
-      <button class="btn btn-primary" onclick="imprimirCaixa()">🖨️ Imprimir / PDF</button>
+      <button class="btn btn-success" onclick="fecharCaixaDia()">🔒 Fechar caixa do dia</button>
+      <button class="btn btn-ghost mgr-only" onclick="baixarCaixa()">📥 Baixar (.txt)</button>
+      <button class="btn wa-btn mgr-only" onclick="caixaWhatsapp()">📲 WhatsApp</button>
+      <button class="btn btn-primary mgr-only" onclick="imprimirCaixa()">🖨️ Imprimir / PDF</button>
     </div>
   </div>
 </div>
@@ -1572,12 +1673,21 @@
 /* ================================================================
    ESTADO + PERSISTÊNCIA
 ================================================================ */
-const STORE_KEY='lojaoEconomia_v2';
+const STORE_KEY='lojaoEconomia_v3';
 
-/* Locais da empresa (mesma loja, dois canais) */
+/* Unidades da empresa (mesma loja, três pontos de venda) */
 const LOCAIS={
-  caminhao:{nome:'Caminhão',emoji:'🚚'},
-  loja:{nome:'Loja Física',emoji:'🏪'}
+  loja1:{nome:'Loja Antônio Diego',emoji:'🏪',tipo:'loja'},
+  loja2:{nome:'Loja Baturité',emoji:'🏪',tipo:'loja'},
+  caminhao:{nome:'Caminhão',emoji:'🚚',tipo:'caminhao'}
+};
+const UNIDADES_KEYS=['loja1','loja2','caminhao'];
+
+/* Perfis de acesso e quais páginas cada um enxerga */
+const PERMISSOES={
+  admin:'*',
+  gestor:['dashboard','pdv','rota','cidades','diario','vendas','produtos','estoque','transferencias','trocas','clientes','financeiro','despesas','metas','equipe','caminhao','combustivel'],
+  caixa:['pdv','vendas','produtos','estoque','transferencias','trocas','clientes','combustivel']
 };
 
 const CIDADES_BASE=[
@@ -1640,9 +1750,10 @@ function fmtBR(v){return 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFra
 function fmtBRk(v){return 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{maximumFractionDigits:0})}
 function dataBR(s){const d=new Date(s+'T00:00:00');return d.toLocaleDateString('pt-BR')}
 function diaSem(s){const dias=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];return dias[new Date(s+'T00:00:00').getDay()]}
-/* Saldo total de um produto (soma dos locais) */
-function estTot(p){if(typeof p.estoque==='number')return p.estoque;return (p.estoque?.caminhao||0)+(p.estoque?.loja||0)}
-function estLoc(p,local){if(typeof p.estoque==='number')return local==='caminhao'?p.estoque:0;return p.estoque?.[local]||0}
+/* Saldo total de um produto (soma de todas as unidades) */
+function estTot(p){if(typeof p.estoque==='number')return p.estoque;return UNIDADES_KEYS.reduce((s,k)=>s+(p.estoque?.[k]||0),0)}
+function estLoc(p,local){if(typeof p.estoque==='number')return 0;return p.estoque?.[local]||0}
+function garanteEstoque(p){if(typeof p.estoque==='number'||!p.estoque)p.estoque={loja1:0,loja2:0,caminhao:0};UNIDADES_KEYS.forEach(k=>{if(p.estoque[k]==null)p.estoque[k]=0});return p.estoque}
 /* Lê imagem do <input type=file>, redimensiona e devolve dataURL (economiza espaço no localStorage) */
 function lerImagemRedim(file,maxLado,cb){
   if(!file)return cb('');
@@ -1668,11 +1779,25 @@ function lerImagemRedim(file,maxLado,cb){
 function seed(){
   const state={
     produtos:PRODUTOS_BASE.map((p,i)=>{
-      // divide o estoque entre os dois locais (60% caminhão / 40% loja)
-      const cam=Math.round(p.estoque*0.6), loja=p.estoque-cam;
+      // divide o estoque entre as 3 unidades
+      const cam=Math.round(p.estoque*0.4), l1=Math.round(p.estoque*0.35), l2=p.estoque-cam-l1;
       const {estoque,...resto}=p;
-      return {id:i+1,...resto,foto:'',estoque:{caminhao:cam,loja:loja}};
+      const cb='789'+String(1000000+i*137).slice(0,7); // código de barras fictício
+      return {id:i+1,...resto,foto:'',codBarras:cb,estoque:{loja1:Math.max(0,l1),loja2:Math.max(0,l2),caminhao:cam}};
     }),
+    usuarios:[
+      {user:'rafael',senha:'rafael123',nome:'Rafael Freitas',role:'admin',unidade:''},
+      {user:'hiellen',senha:'hiellen123',nome:'Hiellen Lima',role:'admin',unidade:''},
+      {user:'samanta',senha:'samanta123',nome:'Samanta',role:'gestor',unidade:''},
+      {user:'antoniodiego',senha:'caixa123',nome:'Caixa Loja Antônio Diego',role:'caixa',unidade:'loja1'},
+      {user:'baturite',senha:'caixa123',nome:'Caixa Loja Baturité',role:'caixa',unidade:'loja2'},
+      {user:'caminhao',senha:'caixa123',nome:'Caixa do Caminhão',role:'caixa',unidade:'caminhao'},
+    ],
+    abastecimentos:[
+      {id:1,data:hojeMinus(1),valor:240,litros:39,km:68380,comprovante:'',por:'Carlos (motorista)',obs:'Posto Ipiranga BR-116'},
+      {id:2,data:hojeMinus(3),valor:265,litros:43,km:68210,comprovante:'',por:'Carlos (motorista)',obs:''},
+    ],
+    fechamentos:[],
     cidades:CIDADES_BASE.slice(),
     equipe:EQUIPE_BASE.map((e,i)=>({id:i+1,...e})),
     clientes:CLIENTES_BASE.map((c,i)=>({id:i+1,...c})),
@@ -1728,42 +1853,44 @@ function seed(){
         vendedor:vendedor?vendedor.nome:'Jéssica',
       });
     }
-    // Vendas da LOJA FÍSICA (movimento menor e fixo)
-    const numLoja=25+Math.floor(Math.random()*30);
-    for(let v=0;v<numLoja;v++){
-      const hora=8+Math.floor(Math.random()*10);
-      const min=Math.floor(Math.random()*60);
-      const numItens=1+Math.floor(Math.random()*3);
-      const itens=[];let total=0;
-      for(let j=0;j<numItens;j++){
-        const prod=state.produtos[Math.floor(Math.random()*state.produtos.length)];
-        const qt=1+Math.floor(Math.random()*2);
-        itens.push({prodId:prod.id,nome:prod.nome,qt,preco:prod.preco});
-        total+=qt*prod.preco;
+    // Vendas das DUAS LOJAS FÍSICAS (movimento menor e fixo)
+    [['loja1','Loja Antônio Diego','Ana'],['loja2','Loja Baturité','Marcos']].forEach(([uni,cid,vend])=>{
+      const numLoja=20+Math.floor(Math.random()*25);
+      for(let v=0;v<numLoja;v++){
+        const hora=8+Math.floor(Math.random()*10);
+        const min=Math.floor(Math.random()*60);
+        const numItens=1+Math.floor(Math.random()*3);
+        const itens=[];let total=0;
+        for(let j=0;j<numItens;j++){
+          const prod=state.produtos[Math.floor(Math.random()*state.produtos.length)];
+          const qt=1+Math.floor(Math.random()*2);
+          itens.push({prodId:prod.id,nome:prod.nome,qt,preco:prod.preco});
+          total+=qt*prod.preco;
+        }
+        const pagamentos=['pix','pix','dinheiro','cartao','cartao'];
+        const pg=pagamentos[Math.floor(Math.random()*pagamentos.length)];
+        state.vendas.push({
+          id:state.vendas.length+1,
+          data,hora:`${String(hora).padStart(2,'0')}:${String(min).padStart(2,'0')}`,
+          local:uni,cidade:cid,itens,total,
+          pagamento:pg,parcelas:pg==='cartao'?1+Math.floor(Math.random()*6):1,
+          vendedor:vend,
+        });
       }
-      const pagamentos=['pix','pix','dinheiro','cartao','cartao'];
-      state.vendas.push({
-        id:state.vendas.length+1,
-        data,hora:`${String(hora).padStart(2,'0')}:${String(min).padStart(2,'0')}`,
-        local:'loja',
-        cidade:'Loja Física',itens,total,
-        pagamento:pagamentos[Math.floor(Math.random()*pagamentos.length)],
-        vendedor:'Ana',
-      });
-    }
+    });
   }
 
   // Entradas de mercadoria (exemplos)
   state.entradas=[
-    {id:1,data:hojeMinus(8),local:'loja',prodId:3,nome:'Escova de dente kit',qt:300,custoUnit:3.5,fornecedor:'Atacadão Higiene LTDA',nf:'',foto:'',obs:'Compra mensal'},
+    {id:1,data:hojeMinus(8),local:'loja1',prodId:3,nome:'Escova de dente kit',qt:300,custoUnit:3.5,fornecedor:'Atacadão Higiene LTDA',nf:'',foto:'',obs:'Compra mensal'},
     {id:2,data:hojeMinus(8),local:'caminhao',prodId:5,nome:'Chinelo simples',qt:120,custoUnit:5.5,fornecedor:'Distribuidora Pé Leve',nf:'',foto:'',obs:''},
-    {id:3,data:hojeMinus(3),local:'loja',prodId:14,nome:'Detergente 500ml',qt:200,custoUnit:3.0,fornecedor:'Química Norte',nf:'',foto:'',obs:'Reposição urgente'},
+    {id:3,data:hojeMinus(3),local:'loja2',prodId:14,nome:'Detergente 500ml',qt:200,custoUnit:3.0,fornecedor:'Química Norte',nf:'',foto:'',obs:'Reposição urgente'},
   ];
 
-  // Transferências entre locais (exemplos — resolve o caso dos lençóis)
+  // Transferências entre unidades (exemplos — resolve o caso dos lençóis)
   state.transferencias=[
-    {id:1,data:hojeMinus(6),de:'loja',para:'caminhao',itens:[{prodId:2,nome:'Toalha de rosto',qt:30},{prodId:5,nome:'Chinelo simples',qt:40}],obs:'Abastecer caminhão antes da rota da semana'},
-    {id:2,data:hojeMinus(2),de:'caminhao',para:'loja',itens:[{prodId:24,nome:'Conjunto panelas ⭐',qt:2}],obs:'Sobrou no caminhão, voltou pra loja'},
+    {id:1,data:hojeMinus(6),de:'loja1',para:'caminhao',itens:[{prodId:2,nome:'Toalha de rosto',qt:30},{prodId:5,nome:'Chinelo simples',qt:40}],obs:'Abastecer caminhão antes da rota da semana'},
+    {id:2,data:hojeMinus(2),de:'caminhao',para:'loja2',itens:[{prodId:24,nome:'Conjunto panelas ⭐',qt:2}],obs:'Sobrou no caminhão, foi pra Baturité'},
   ];
 
   // Despesas dos últimos 30 dias
@@ -1797,6 +1924,55 @@ let S=JSON.parse(localStorage.getItem(STORE_KEY)||'null')||seed();
 function save(){localStorage.setItem(STORE_KEY,JSON.stringify(S))}
 
 /* ================================================================
+   AUTENTICAÇÃO + PERMISSÕES
+================================================================ */
+let CURRENT=JSON.parse(sessionStorage.getItem('lojaoUser')||'null');
+function fazerLogin(){
+  const u=document.getElementById('loginUser').value.trim().toLowerCase();
+  const s=document.getElementById('loginPass').value;
+  const found=(S.usuarios||[]).find(x=>x.user===u&&x.senha===s);
+  if(!found){document.getElementById('loginErro').textContent='Usuário ou senha incorretos.';return;}
+  CURRENT=found;sessionStorage.setItem('lojaoUser',JSON.stringify(found));
+  document.getElementById('loginPass').value='';document.getElementById('loginErro').textContent='';
+  bootUser();
+}
+function logout(){sessionStorage.removeItem('lojaoUser');CURRENT=null;location.reload();}
+function podeVer(page){
+  if(!CURRENT)return false;
+  const perm=PERMISSOES[CURRENT.role];
+  if(perm==='*')return true;
+  if(CURRENT.role==='caixa'&&page==='combustivel'&&CURRENT.unidade!=='caminhao')return false;
+  return perm.includes(page);
+}
+function applyPermissions(){
+  const role=CURRENT.role;
+  // mostra/esconde itens de menu
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    let ok=podeVer(n.dataset.page);
+    // caixa só vê o estoque da própria unidade
+    if(ok&&n.dataset.page==='estoque'&&role==='caixa'&&n.dataset.unidade!==CURRENT.unidade)ok=false;
+    n.style.display=ok?'':'none';
+  });
+  // esconde botões/recursos só de gestor
+  const mgr=(role==='admin'||role==='gestor');
+  document.querySelectorAll('.mgr-only').forEach(e=>e.style.display=mgr?'':'none');
+  // cartão de usuário
+  document.getElementById('userNome').textContent=CURRENT.nome;
+  document.getElementById('userRole').textContent=role==='admin'?'Administrador(a)':role==='gestor'?'Gestor(a)':'Caixa — '+(LOCAIS[CURRENT.unidade]?.nome||'');
+  document.getElementById('userAvatar').textContent=CURRENT.nome.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  // PDV travado pro caixa
+  if(role==='caixa')localPdv=CURRENT.unidade;
+}
+function bootUser(){
+  document.getElementById('loginScreen').style.display='none';
+  document.querySelector('.app').style.display='';
+  applyPermissions();
+  // página inicial conforme perfil
+  const inicial=(CURRENT.role==='caixa')?'pdv':'dashboard';
+  goPage(inicial);
+}
+
+/* ================================================================
    NAVEGAÇÃO
 ================================================================ */
 const PAGES={
@@ -1807,9 +1983,8 @@ const PAGES={
   diario:['Diário de Bordo','Tudo que afetou o dia, virando inteligência'],
   vendas:['Vendas','Histórico, ticket médio, formas de pagamento'],
   produtos:['Produtos','Catálogo, margem, produtos mais vendidos'],
-  'estoque-caminhao':['Estoque — Caminhão 🚚','Posição do estoque a bordo + alimentar estoque'],
-  'estoque-loja':['Estoque — Loja Física 🏪','Posição do estoque da loja + alimentar estoque'],
-  transferencias:['Transferências','Mover produtos entre loja e caminhão'],
+  estoque:['Estoque','Posição do estoque + alimentar estoque'],
+  transferencias:['Transferências','Mover produtos entre as unidades'],
   trocas:['Trocas & Devoluções','Registro de trocas com a origem da compra'],
   clientes:['Clientes & Fidelidade','Base + disparo WhatsApp para retorno à cidade'],
   financeiro:['Financeiro / DRE','Receitas, despesas, lucro e margem'],
@@ -1817,14 +1992,17 @@ const PAGES={
   metas:['Metas','Acompanhamento da meta da gestão'],
   equipe:['Equipe','Folha, comissão e performance'],
   caminhao:['Caminhão','Manutenções e consumo do veículo'],
+  combustivel:['Combustível','Abastecimentos e comprovantes do motorista'],
+  usuarios:['Usuários','Logins e permissões de acesso'],
   config:['Configurações','Ajustes do sistema'],
 };
-function goPage(p){
+function goPage(p,unidade){
+  if(!podeVer(p))return toast('Você não tem acesso a essa área','error');
   document.querySelectorAll('.page').forEach(s=>s.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===p));
-  document.getElementById('pageTitle').textContent=PAGES[p][0];
-  document.getElementById('pageSub').textContent=PAGES[p][1];
+  const el=document.getElementById('page-'+p);if(!el)return;
+  el.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===p&&(!n.dataset.unidade||n.dataset.unidade===unidade)));
+  if(PAGES[p]){document.getElementById('pageTitle').textContent=PAGES[p][0];document.getElementById('pageSub').textContent=PAGES[p][1];}
   if(p==='dashboard')renderDash();
   if(p==='pdv')renderPdv();
   if(p==='rota')renderRota();
@@ -1832,8 +2010,7 @@ function goPage(p){
   if(p==='diario')renderDiario();
   if(p==='vendas')renderVendas();
   if(p==='produtos')renderProdutos();
-  if(p==='estoque-caminhao')renderEstoqueLocal('caminhao');
-  if(p==='estoque-loja')renderEstoqueLocal('loja');
+  if(p==='estoque')renderEstoque(unidade||estUnidade);
   if(p==='transferencias')renderTransfer();
   if(p==='trocas')renderTrocas();
   if(p==='clientes')renderClientes();
@@ -1842,8 +2019,11 @@ function goPage(p){
   if(p==='metas')renderMetas();
   if(p==='equipe')renderEquipe();
   if(p==='caminhao')renderCaminhao();
+  if(p==='combustivel')renderCombustivel();
+  if(p==='usuarios')renderUsuarios();
 }
-document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>goPage(n.dataset.page)));
+function goEstoque(u){goPage('estoque',u);}
+document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>goPage(n.dataset.page,n.dataset.unidade)));
 
 /* ================================================================
    UI HELPERS
@@ -1993,10 +2173,10 @@ function renderDash(){
   const insights=[];
   // Estoque baixo (considerando total das duas lojas)
   const baixos=S.produtos.filter(p=>estTot(p)<=p.min);
-  if(baixos.length)insights.push({tipo:'danger',ico:'🚨',txt:`<strong>${baixos.length} produtos com estoque baixo</strong> — ${baixos.slice(0,3).map(p=>p.nome).join(', ')}${baixos.length>3?'…':''}. <a onclick="goPage('estoque-caminhao')" style="color:var(--azul);cursor:pointer">Ver estoque →</a>`});
-  // Desbalanço entre locais (um zerado, outro com sobra)
-  const desbal=S.produtos.filter(p=>{const c=estLoc(p,'caminhao'),l=estLoc(p,'loja');return (c<=0&&l>=5)||(l<=0&&c>=5)});
-  if(desbal.length){const ex=desbal[0];const falta=estLoc(ex,'caminhao')<=0?'caminhão':'loja';insights.push({tipo:'info',ico:'⚖️',txt:`<strong>${desbal.length} produto(s) desbalanceado(s)</strong> entre locais — ex.: <strong>${ex.nome}</strong> zerou no ${falta} mas tem no outro. <a onclick="goPage('transferencias')" style="color:var(--azul);cursor:pointer">Transferir →</a>`});}
+  if(baixos.length)insights.push({tipo:'danger',ico:'🚨',txt:`<strong>${baixos.length} produtos com estoque baixo</strong> — ${baixos.slice(0,3).map(p=>p.nome).join(', ')}${baixos.length>3?'…':''}. <a onclick="goEstoque('caminhao')" style="color:var(--azul);cursor:pointer">Ver estoque →</a>`});
+  // Desbalanço entre unidades (uma zerada, outra com sobra)
+  const desbal=S.produtos.filter(p=>{const vals=UNIDADES_KEYS.map(u=>estLoc(p,u));return Math.min(...vals)<=0&&Math.max(...vals)>=5});
+  if(desbal.length){const ex=desbal[0];const falta=UNIDADES_KEYS.find(u=>estLoc(ex,u)<=0);insights.push({tipo:'info',ico:'⚖️',txt:`<strong>${desbal.length} produto(s) desbalanceado(s)</strong> entre unidades — ex.: <strong>${ex.nome}</strong> zerou em ${LOCAIS[falta].nome} mas tem em outra. <a onclick="goPage('transferencias')" style="color:var(--azul);cursor:pointer">Transferir →</a>`});}
   // Melhor cidade
   if(top[0])insights.push({tipo:'success',ico:'🏆',txt:`<strong>${top[0][0]}</strong> é a cidade ouro do mês com ${fmtBRk(top[0][1])} em receita.`});
   // Cidade fraca
@@ -2020,33 +2200,39 @@ function renderDash(){
     <div class="alert-box ${i.tipo}"><span style="font-size:18px">${i.ico}</span><div>${i.txt}</div></div>
   `).join(''):'<div class="text-mute" style="padding:20px;text-align:center">Sem alertas no momento. Tudo certo!</div>';
 
-  // Badges de estoque por local
-  const baixoCam=S.produtos.filter(p=>estLoc(p,'caminhao')<=p.min).length;
-  const baixoLoja=S.produtos.filter(p=>estLoc(p,'loja')<=p.min).length;
-  const bc=document.getElementById('badgeEstCam'),bl=document.getElementById('badgeEstLoja');
-  bc.textContent=baixoCam;bc.style.display=baixoCam?'inline-block':'none';
-  bl.textContent=baixoLoja;bl.style.display=baixoLoja?'inline-block':'none';
+  // Badges de estoque por unidade
+  UNIDADES_KEYS.forEach(u=>{
+    const n=S.produtos.filter(p=>estLoc(p,u)<=p.min).length;
+    const b=document.getElementById('badgeEst-'+u);
+    if(b){b.textContent=n;b.style.display=n?'inline-block':'none';}
+  });
 }
 
 /* ================================================================
    PDV
 ================================================================ */
 let carrinho=[];let pagamentoSel='pix';let localPdv='caminhao';
-function setLocalPdv(l,btn){
-  localPdv=l;
-  document.querySelectorAll('[data-local]').forEach(x=>x.classList.remove('active'));
-  btn.classList.add('active');
-  carrinho=[];
-  renderPdv();
+function setLocalPdv(l){
+  localPdv=l;carrinho=[];renderPdv();
+}
+function renderPdvLocal(){
+  // botões de unidade — caixa fica travado na sua unidade
+  const trava=CURRENT&&CURRENT.role==='caixa';
+  if(trava)localPdv=CURRENT.unidade;
+  const keys=trava?[CURRENT.unidade]:['loja1','loja2','caminhao'];
+  document.getElementById('pdvLocalBtns').innerHTML=keys.map(u=>
+    `<button class="pay-btn ${u===localPdv?'active':''}" ${trava?'':`onclick="setLocalPdv('${u}')"`}><span class="ico">${LOCAIS[u].emoji}</span>${LOCAIS[u].nome}</button>`
+  ).join('');
 }
 function renderPdv(){
-  const cidade=localPdv==='caminhao'?(S.rota[hoje()]||'—'):(S.config?.lojaNome||'Loja Física');
-  document.getElementById('pdvCity').textContent=(localPdv==='caminhao'?'🚚 ':'🏪 ')+cidade;
+  renderPdvLocal();
+  const cidade=LOCAIS[localPdv].tipo==='caminhao'?(S.rota[hoje()]||'—'):LOCAIS[localPdv].nome;
+  document.getElementById('pdvCity').textContent=LOCAIS[localPdv].emoji+' '+cidade;
   document.getElementById('pdvDate').textContent=new Date().toLocaleDateString('pt-BR');
 
   const search=document.getElementById('pdvSearch').value.toLowerCase();
   document.getElementById('pdvProdGrid').innerHTML=S.produtos
-    .filter(p=>!search||p.nome.toLowerCase().includes(search))
+    .filter(p=>!search||p.nome.toLowerCase().includes(search)||(p.codBarras||'').includes(search))
     .map(p=>{
       const est=estLoc(p,localPdv);
       const cls=est<=0?'out':est<=p.min?'low':'';
@@ -2055,19 +2241,32 @@ function renderPdv(){
         <div class="prod-img">${img}</div>
         <div class="prod-name">${p.nome}</div>
         <div class="prod-price">${fmtBR(p.preco).replace('R$ ','R$')}</div>
-        <div class="prod-stock">${est} no ${localPdv==='caminhao'?'caminhão':'loja'}</div>
+        <div class="prod-stock">${est} em estoque</div>
       </div>`;
     }).join('');
   renderCart();
 }
+function bipBarcode(){
+  const inp=document.getElementById('pdvBarcode');
+  const code=inp.value.trim();if(!code)return;
+  const p=S.produtos.find(x=>(x.codBarras||'')===code);
+  if(p){addCart(p.id);inp.value='';toast(`+ ${p.nome}`,'success');}
+  else toast('Código não encontrado','error');
+}
 document.getElementById('pdvSearch').addEventListener('input',renderPdv);
-document.querySelectorAll('.pay-btn').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.pay-btn').forEach(x=>x.classList.remove('active'));
+document.querySelectorAll('.pay-btn[data-pay]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.pay-btn[data-pay]').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');pagamentoSel=b.dataset.pay;
+  document.getElementById('parcelasWrap').style.display=pagamentoSel==='cartao'?'block':'none';
+  if(pagamentoSel==='cartao'){
+    const sel=document.getElementById('pdvParcelas');const tot=carrinho.reduce((s,i)=>s+i.preco*i.qt,0);
+    sel.innerHTML=Array.from({length:10},(_,i)=>{const n=i+1;return `<option value="${n}">${n}x de ${fmtBR(tot/n)} ${n===1?'(à vista)':'sem juros'}</option>`}).join('');
+  }
+  renderCart();
 }));
 
 function addCart(id){
-  const p=S.produtos.find(x=>x.id===id);if(!p||estLoc(p,localPdv)<=0)return;
+  const p=S.produtos.find(x=>x.id===id);if(!p||estLoc(p,localPdv)<=0)return toast('Sem estoque nesta unidade','error');
   const it=carrinho.find(c=>c.prodId===id);
   if(it){if(it.qt<estLoc(p,localPdv))it.qt++;else return toast('Estoque insuficiente','error')}
   else carrinho.push({prodId:id,nome:p.nome,preco:p.preco,qt:1,emoji:p.emoji});
@@ -2097,12 +2296,19 @@ function renderCart(){
   const tot=carrinho.reduce((s,i)=>s+i.preco*i.qt,0);
   document.getElementById('cartTotal').textContent=fmtBR(tot);
   document.getElementById('cartCount').textContent=carrinho.reduce((s,i)=>s+i.qt,0)+' itens';
+  // atualiza opções de parcela conforme o total
+  if(pagamentoSel==='cartao'){
+    const sel=document.getElementById('pdvParcelas');const atual=sel.value||'1';
+    sel.innerHTML=Array.from({length:10},(_,i)=>{const n=i+1;return `<option value="${n}">${n}x de ${fmtBR(tot/n)} ${n===1?'(à vista)':'sem juros'}</option>`}).join('');
+    sel.value=atual;
+  }
 }
 function esvaziarCarrinho(){carrinho=[];renderCart()}
 function finalizarVenda(){
   if(!carrinho.length)return toast('Carrinho vazio','error');
-  const cidade=localPdv==='caminhao'?(S.rota[hoje()]||'Sem cidade'):(S.config?.lojaNome||'Loja Física');
+  const cidade=LOCAIS[localPdv].tipo==='caminhao'?(S.rota[hoje()]||'Sem cidade'):LOCAIS[localPdv].nome;
   const total=carrinho.reduce((s,i)=>s+i.preco*i.qt,0);
+  const parcelas=pagamentoSel==='cartao'?(+document.getElementById('pdvParcelas').value||1):1;
   const now=new Date();
   S.vendas.push({
     id:S.vendas.length+1,
@@ -2112,17 +2318,18 @@ function finalizarVenda(){
     cidade,
     itens:carrinho.map(c=>({prodId:c.prodId,nome:c.nome,qt:c.qt,preco:c.preco})),
     total,
-    pagamento:pagamentoSel,
-    vendedor:localPdv==='caminhao'?'Jéssica':'Ana'
+    pagamento:pagamentoSel,parcelas,
+    vendedor:CURRENT?CURRENT.nome:'Caixa'
   });
   // Baixa estoque do LOCAL onde a venda aconteceu
   carrinho.forEach(c=>{
     const p=S.produtos.find(x=>x.id===c.prodId);
-    if(p)p.estoque[localPdv]=Math.max(0,(p.estoque[localPdv]||0)-c.qt);
+    if(p){garanteEstoque(p);p.estoque[localPdv]=Math.max(0,(p.estoque[localPdv]||0)-c.qt);}
   });
   carrinho=[];
   save();renderPdv();
-  toast(`Venda ${LOCAIS[localPdv].emoji} registrada: ${fmtBR(total)} ✅`,'success');
+  const msgParc=pagamentoSel==='cartao'&&parcelas>1?` em ${parcelas}x`:'';
+  toast(`Venda ${LOCAIS[localPdv].emoji} registrada: ${fmtBR(total)}${msgParc} ✅`,'success');
 }
 
 /* ================================================================
@@ -2130,7 +2337,10 @@ function finalizarVenda(){
 ================================================================ */
 function abrirCaixa(){
   document.getElementById('cxData').value=hoje();
-  document.getElementById('cxLocal').value=localPdv;
+  // caixa só vê a própria unidade
+  if(CURRENT&&CURRENT.role==='caixa'){document.getElementById('cxLocal').value=CURRENT.unidade;document.getElementById('cxLocal').disabled=true;}
+  else{document.getElementById('cxLocal').value=localPdv;document.getElementById('cxLocal').disabled=false;}
+  document.getElementById('cxOperador').value=CURRENT?CURRENT.nome:'Gestão';
   renderCaixa();
   document.getElementById('modalCaixa').classList.add('show');
 }
@@ -2147,26 +2357,22 @@ function computeCaixa(){
   const pc={};
   vendas.forEach(v=>v.itens.forEach(i=>pc[i.nome]=(pc[i.nome]||0)+i.qt));
   const top=Object.entries(pc).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  // por canal
-  const canalCam=vendas.filter(v=>(v.local||'caminhao')==='caminhao');
-  const canalLoja=vendas.filter(v=>v.local==='loja');
-  // local label
+  // por unidade
+  const porUni=UNIDADES_KEYS.map(u=>{const vs=vendas.filter(v=>(v.local||'caminhao')===u);return {u,rec:vs.reduce((s,v)=>s+v.total,0),n:vs.length};});
+  // label
   let localLabel;
   if(filtro==='caminhao')localLabel='🚚 Caminhão — '+(S.rota[data]||'cidade não definida');
-  else if(filtro==='loja')localLabel='🏪 '+(S.config?.lojaNome||'Loja Física');
-  else localLabel='🚚 Caminhão + 🏪 Loja';
-  return {data,filtro,vendas,total,itens,pg,top,localLabel,
-    nVendas:vendas.length,ticket:vendas.length?total/vendas.length:0,
-    recCam:canalCam.reduce((s,v)=>s+v.total,0),nCam:canalCam.length,
-    recLoja:canalLoja.reduce((s,v)=>s+v.total,0),nLoja:canalLoja.length};
+  else if(LOCAIS[filtro])localLabel=LOCAIS[filtro].emoji+' '+LOCAIS[filtro].nome;
+  else localLabel='Todas as unidades';
+  return {data,filtro,vendas,total,itens,pg,top,localLabel,porUni,
+    nVendas:vendas.length,ticket:vendas.length?total/vendas.length:0};
 }
 function renderCaixa(){
   const c=computeCaixa();
   const pct=v=>c.total?((v/c.total)*100).toFixed(0)+'%':'0%';
   const linhasCanal=(c.filtro==='todos')?`
     <div class="divider"></div>
-    <div class="flex justify-between" style="font-size:12.5px;margin-bottom:4px"><span>🚚 Caminhão</span><span><strong>${fmtBR(c.recCam)}</strong> · ${c.nCam} vendas</span></div>
-    <div class="flex justify-between" style="font-size:12.5px"><span>🏪 Loja Física</span><span><strong>${fmtBR(c.recLoja)}</strong> · ${c.nLoja} vendas</span></div>`:'';
+    ${c.porUni.map(x=>`<div class="flex justify-between" style="font-size:12.5px;margin-bottom:4px"><span>${LOCAIS[x.u].emoji} ${LOCAIS[x.u].nome}</span><span><strong>${fmtBR(x.rec)}</strong> · ${x.n} vendas</span></div>`).join('')}`:'';
   document.getElementById('caixaReport').innerHTML=`
     <div style="border:2px dashed var(--cinza-borda);border-radius:12px;padding:18px">
       <div style="text-align:center;border-bottom:2px solid var(--azul);padding-bottom:10px;margin-bottom:12px">
@@ -2214,7 +2420,7 @@ function caixaTexto(){
   t+=`\n*💰 TOTAL: ${fmtBR(c.total)}*\n`;
   t+=`🛒 ${c.nVendas} vendas · 🎟️ ticket ${fmtBR(c.ticket)} · 📦 ${c.itens} itens\n`;
   t+=`\n*Pagamentos:*\n📱 PIX: ${fmtBR(c.pg.pix.v)} (${pct(c.pg.pix.v)})\n💵 Dinheiro: ${fmtBR(c.pg.dinheiro.v)} (${pct(c.pg.dinheiro.v)})\n💳 Cartão: ${fmtBR(c.pg.cartao.v)} (${pct(c.pg.cartao.v)})\n`;
-  if(c.filtro==='todos')t+=`\n🚚 Caminhão: ${fmtBR(c.recCam)} · 🏪 Loja: ${fmtBR(c.recLoja)}\n`;
+  if(c.filtro==='todos')t+=`\n*Por unidade:*\n`+c.porUni.map(x=>`${LOCAIS[x.u].emoji} ${LOCAIS[x.u].nome}: ${fmtBR(x.rec)}`).join('\n')+'\n';
   if(c.top.length){t+=`\n*Mais vendidos:*\n`;c.top.forEach((x,i)=>t+=`${i+1}. ${x[0]} — ${x[1]} un.\n`);}
   t+=`\n_Gerado em ${new Date().toLocaleString('pt-BR')}_`;
   return t;
@@ -2246,6 +2452,21 @@ function imprimirCaixa(){
     </body></html>`);
   w.document.close();
   setTimeout(()=>{try{w.print()}catch(e){}},400);
+}
+function fecharCaixaDia(){
+  const c=computeCaixa();
+  if(c.filtro==='todos')return toast('Selecione a unidade para fechar o caixa','error');
+  if(!S.fechamentos)S.fechamentos=[];
+  const jaFechado=S.fechamentos.find(f=>f.data===c.data&&f.unidade===c.filtro);
+  if(jaFechado&&!confirm('Esse caixa já foi fechado hoje. Refazer o fechamento?'))return;
+  if(jaFechado)S.fechamentos=S.fechamentos.filter(f=>f!==jaFechado);
+  S.fechamentos.push({
+    id:Math.max(0,...S.fechamentos.map(f=>f.id),0)+1,
+    data:c.data,unidade:c.filtro,total:c.total,nVendas:c.nVendas,itens:c.itens,
+    por:CURRENT?CURRENT.nome:'',hora:new Date().toLocaleTimeString('pt-BR')
+  });
+  save();
+  toast(`🔒 Caixa de ${LOCAIS[c.filtro].nome} fechado: ${fmtBR(c.total)}`,'success');
 }
 
 /* ================================================================
@@ -2488,8 +2709,10 @@ function renderVendas(){
     if(f)arr=arr.filter(v=>v.cidade===f);
     arr=arr.slice(0,50);
     document.getElementById('tblVendas').querySelector('tbody').innerHTML=arr.map(v=>{
-      const pgIco={pix:'📱 PIX',dinheiro:'💵 Dinheiro',cartao:'💳 Cartão'}[v.pagamento]||v.pagamento;
-      const canal=v.local==='loja'?'<span class="badge b-purple">🏪 Loja</span>':'<span class="badge b-blue">🚚 Caminhão</span>';
+      let pgIco={pix:'📱 PIX',dinheiro:'💵 Dinheiro',cartao:'💳 Cartão'}[v.pagamento]||v.pagamento;
+      if(v.pagamento==='cartao'&&v.parcelas>1)pgIco+=` ${v.parcelas}x`;
+      const u=LOCAIS[v.local]||LOCAIS.caminhao;
+      const canal=`<span class="badge ${v.local==='caminhao'?'b-blue':'b-purple'}">${u.emoji} ${u.nome.replace('Loja ','')}</span>`;
       return `<tr>
         <td>${dataBR(v.data)} ${v.hora}</td>
         <td>${canal}</td>
@@ -2517,18 +2740,19 @@ function renderProdutos(){
     return `<span class="badge b-green">${n}</span>`;
   }
   document.getElementById('tblProdutos').querySelector('tbody').innerHTML=S.produtos.map(p=>{
-    const margem=((p.preco-p.custo)/p.preco*100).toFixed(0);
-    const cam=estLoc(p,'caminhao'),loja=estLoc(p,'loja');
+    garanteEstoque(p);
+    const l1=estLoc(p,'loja1'),l2=estLoc(p,'loja2'),cam=estLoc(p,'caminhao');
     const fotoTd=p.foto?`<img src="${p.foto}" style="width:26px;height:26px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px"/>`:`${p.emoji} `;
+    const cell=(n,u)=>`${stkBadge(n,p.min)} <button class="btn btn-ghost btn-sm" style="padding:2px 5px" onclick="ajustarEstoque(${p.id},'${u}')" title="Ajustar">✏️</button>`;
     return `<tr>
       <td><strong>${fotoTd}${p.nome}</strong></td>
-      <td><span class="badge b-blue">${p.cat}</span></td>
+      <td style="font-size:11px;color:var(--cinza-mute)">${p.codBarras||'—'}</td>
       <td>${fmtBR(p.custo)}</td>
       <td><strong>${fmtBR(p.preco)}</strong></td>
-      <td><span class="badge ${margem>50?'b-green':margem>30?'b-yellow':'b-red'}">${margem}%</span></td>
-      <td>${stkBadge(cam,p.min)} <button class="btn btn-ghost btn-sm" style="padding:2px 6px" onclick="ajustarEstoque(${p.id},'caminhao')" title="Ajustar caminhão">✏️</button></td>
-      <td>${stkBadge(loja,p.min)} <button class="btn btn-ghost btn-sm" style="padding:2px 6px" onclick="ajustarEstoque(${p.id},'loja')" title="Ajustar loja">✏️</button></td>
-      <td><strong>${cam+loja}</strong></td>
+      <td>${cell(l1,'loja1')}</td>
+      <td>${cell(l2,'loja2')}</td>
+      <td>${cell(cam,'caminhao')}</td>
+      <td><strong>${l1+l2+cam}</strong></td>
       <td>${vendCt[p.id]||0}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="trocarFoto(${p.id})">📷</button></td>
     </tr>`;
@@ -2564,7 +2788,7 @@ function ajustarEstoque(id,local){
   const nome=LOCAIS[local].nome;
   const novo=prompt(`Ajustar estoque de "${p.nome}" no ${nome}\nAtual: ${atual}\n\nDigite o novo valor:`,atual);
   if(novo!==null&&!isNaN(+novo)){
-    if(typeof p.estoque==='number')p.estoque={caminhao:0,loja:0};
+    garanteEstoque(p);
     p.estoque[local]=+novo;save();renderProdutos();toast('Estoque atualizado','success');
   }
 }
@@ -2586,7 +2810,8 @@ function salvarProduto(){
       emoji:document.getElementById('npEmoji').value||'🏷️',
       custo:+document.getElementById('npCusto').value,
       preco:+document.getElementById('npPreco').value,
-      estoque:{caminhao:+document.getElementById('npEstCam').value,loja:+document.getElementById('npEstLoja').value},
+      codBarras:document.getElementById('npCB').value.trim(),
+      estoque:{loja1:+document.getElementById('npEstL1').value,loja2:+document.getElementById('npEstL2').value,caminhao:+document.getElementById('npEstCam').value},
       min:+document.getElementById('npMin').value,
       foto:foto||''
     });
@@ -2597,22 +2822,25 @@ function salvarProduto(){
 /* ================================================================
    ESTOQUE POR LOCAL (caminhão / loja) + ALIMENTAR ESTOQUE
 ================================================================ */
-function switchEstTab(local,tab,el){
-  const pref=local==='caminhao'?'estCaminhao':'estLoja';
-  document.querySelectorAll(`#page-estoque-${local} .tab`).forEach(t=>t.classList.remove('active'));
+let estUnidade='caminhao';
+function switchEstTab(tab,el){
+  document.querySelectorAll('#page-estoque .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById(pref+'-lista').style.display=tab==='lista'?'block':'none';
-  document.getElementById(pref+'-alimentar').style.display=tab==='alimentar'?'block':'none';
-  if(tab==='alimentar')renderAlimentar(local);
+  document.getElementById('est-lista').style.display=tab==='lista'?'block':'none';
+  document.getElementById('est-alimentar').style.display=tab==='alimentar'?'block':'none';
+  if(tab==='alimentar')renderAlimentar();
 }
 
-function renderEstoqueLocal(local){
-  const pref=local==='caminhao'?'estCaminhao':'estLoja';
+function renderEstoque(unidade){
+  const local=unidade||estUnidade;estUnidade=local;
   const emoji=LOCAIS[local].emoji, nome=LOCAIS[local].nome;
+  document.getElementById('pageTitle').textContent='Estoque — '+nome+' '+emoji;
+  document.getElementById('pageSub').textContent='Posição do estoque + alimentar estoque';
   // reset tab para "lista"
-  document.querySelectorAll(`#page-estoque-${local} .tab`).forEach((t,i)=>t.classList.toggle('active',i===0));
-  document.getElementById(pref+'-alimentar').style.display='none';
-  const cont=document.getElementById(pref+'-lista');
+  document.getElementById('estTabLista').classList.add('active');
+  document.getElementById('estTabAlimentar').classList.remove('active');
+  document.getElementById('est-alimentar').style.display='none';
+  const cont=document.getElementById('est-lista');
   cont.style.display='block';
 
   const valor=S.produtos.reduce((s,p)=>s+estLoc(p,local)*p.custo,0);
@@ -2671,48 +2899,51 @@ function renderEstoqueLocal(local){
 }
 
 let alimentarFoto='',alimentarNF='';
-function renderAlimentar(local){
-  const pref=local==='caminhao'?'estCaminhao':'estLoja';
+function renderAlimentar(){
+  const local=estUnidade;
   const nome=LOCAIS[local].nome,emoji=LOCAIS[local].emoji;
   alimentarFoto='';alimentarNF='';
-  const cont=document.getElementById(pref+'-alimentar');
+  const cont=document.getElementById('est-alimentar');
   cont.innerHTML=`
-    <div class="alert-box info"><span style="font-size:18px">➕</span><div>Entrada de mercadoria no <strong>${emoji} ${nome}</strong>. Preencha os dados, anexe a foto do produto e a nota fiscal. O estoque é somado automaticamente.</div></div>
+    <div class="alert-box info"><span style="font-size:18px">➕</span><div>Entrada de mercadoria no <strong>${emoji} ${nome}</strong>. Ao dar entrada, o produto é <strong>criado uma única vez</strong> no catálogo (não duplica) — se já existir, só repõe a quantidade e atualiza o preço.</div></div>
     <div class="row-2">
       <div class="panel">
         <div class="panel-head"><div><div class="panel-title">📥 Dados da entrada</div></div></div>
         <div class="form-grid">
-          <div class="field"><label>Data</label><input type="date" id="al_data_${local}" value="${hoje()}"/></div>
+          <div class="field"><label>Data</label><input type="date" id="al_data" value="${hoje()}"/></div>
           <div class="field"><label>Produto</label>
-            <select id="al_prod_${local}">
-              <option value="__novo__">➕ Produto novo (não cadastrado)</option>
+            <select id="al_prod" onchange="document.getElementById('al_novo_wrap').style.display=this.value==='__novo__'?'grid':'none'">
+              <option value="__novo__">➕ Produto novo</option>
               ${S.produtos.map(p=>`<option value="${p.id}">${p.emoji} ${p.nome}</option>`).join('')}
             </select>
           </div>
-          <div class="field" id="al_novonome_wrap_${local}" style="display:none;grid-column:span 2"><label>Nome do produto novo</label><input id="al_novonome_${local}" placeholder="Ex: Lençol casal"/></div>
-          <div class="field"><label>Quantidade que entrou</label><input type="number" id="al_qt_${local}" value="50" min="1"/></div>
-          <div class="field"><label>Custo unitário (R$)</label><input type="number" id="al_custo_${local}" step="0.01" value="5.00"/></div>
-          <div class="field"><label>Preço de venda (R$)</label><input type="number" id="al_preco_${local}" step="0.01" value="10.00"/></div>
-          <div class="field"><label>Fornecedor</label><input id="al_forn_${local}" placeholder="Ex: Atacadão XYZ"/></div>
-          <div class="field" style="grid-column:span 2"><label>Observação</label><input id="al_obs_${local}" placeholder="Ex: lote promocional"/></div>
+          <div class="form-grid" id="al_novo_wrap" style="grid-column:span 2;gap:12px">
+            <div class="field"><label>Nome do produto novo</label><input id="al_novonome" placeholder="Ex: Lençol casal"/></div>
+            <div class="field"><label>Código de barras</label><input id="al_cb" placeholder="bipe ou digite"/></div>
+          </div>
+          <div class="field"><label>Quantidade que entrou</label><input type="number" id="al_qt" value="50" min="1"/></div>
+          <div class="field"><label>Custo unitário (R$)</label><input type="number" id="al_custo" step="0.01" value="5.00"/></div>
+          <div class="field"><label>Preço de venda (R$)</label><input type="number" id="al_preco" step="0.01" value="10.00"/></div>
+          <div class="field"><label>Fornecedor</label><input id="al_forn" placeholder="Ex: Atacadão XYZ"/></div>
+          <div class="field" style="grid-column:span 2"><label>Observação</label><input id="al_obs" placeholder="Ex: lote promocional"/></div>
         </div>
       </div>
       <div class="panel">
         <div class="panel-head"><div><div class="panel-title">📎 Anexos</div></div></div>
         <div class="field" style="margin-bottom:14px">
           <label>📷 Foto do produto</label>
-          <input type="file" accept="image/*" onchange="previewAnexo(this,'foto','${local}')"/>
-          <div id="prev_foto_${local}" style="margin-top:8px"></div>
+          <input type="file" accept="image/*" onchange="previewAnexo(this,'foto')"/>
+          <div id="prev_foto" style="margin-top:8px"></div>
         </div>
         <div class="field">
           <label>🧾 Nota fiscal (foto ou PDF)</label>
-          <input type="file" accept="image/*,application/pdf" onchange="previewAnexo(this,'nf','${local}')"/>
-          <div id="prev_nf_${local}" style="margin-top:8px"></div>
+          <input type="file" accept="image/*,application/pdf" onchange="previewAnexo(this,'nf')"/>
+          <div id="prev_nf" style="margin-top:8px"></div>
         </div>
-        <div class="text-mute" style="font-size:11px;margin-top:10px">As imagens são compactadas automaticamente para caber no armazenamento local.</div>
+        <div class="text-mute" style="font-size:11px;margin-top:10px">As imagens são compactadas automaticamente para caber no armazenamento.</div>
       </div>
     </div>
-    <button class="btn btn-success" style="padding:12px 22px" onclick="salvarEntrada('${local}')">✅ Dar entrada no estoque</button>
+    <button class="btn btn-success" style="padding:12px 22px" onclick="salvarEntrada()">✅ Dar entrada no estoque</button>
     <div class="panel" style="margin-top:18px">
       <div class="panel-head"><div><div class="panel-title">🗂️ Últimas entradas — ${nome}</div></div></div>
       <div class="scroll-x">
@@ -2725,63 +2956,65 @@ function renderAlimentar(local){
               <td>${e.qt} un.</td>
               <td>${fmtBR(e.custoUnit)}</td>
               <td>${e.fornecedor||'—'}</td>
-              <td>${e.foto?`<img src="${e.foto}" style="width:30px;height:30px;object-fit:cover;border-radius:5px;cursor:pointer" onclick="window.open('').document.write('<img src=\\'${e.foto}\\' style=max-width:100%>')"/>`:'—'}</td>
+              <td>${e.foto?`<img src="${e.foto}" style="width:30px;height:30px;object-fit:cover;border-radius:5px"/>`:'—'}</td>
               <td>${e.nf?(e.nf.startsWith('pdf:')?'📄 PDF':`<img src="${e.nf}" style="width:30px;height:30px;object-fit:cover;border-radius:5px"/>`):'—'}</td>
             </tr>`).join('')||'<tr><td colspan="7" class="text-mute" style="text-align:center;padding:20px">Nenhuma entrada registrada ainda</td></tr>'}</tbody>
         </table>
       </div>
     </div>`;
-  // mostra campo de nome novo quando seleciona "produto novo"
-  document.getElementById('al_prod_'+local).addEventListener('change',function(){
-    document.getElementById('al_novonome_wrap_'+local).style.display=this.value==='__novo__'?'block':'none';
-  });
-  document.getElementById('al_novonome_wrap_'+local).style.display='block';
+  document.getElementById('al_novo_wrap').style.display='grid';
 }
-function previewAnexo(input,tipo,local){
+function previewAnexo(input,tipo){
   const file=input.files[0];if(!file)return;
   lerImagemRedim(file,tipo==='foto'?500:900,dataUrl=>{
     if(tipo==='foto')alimentarFoto=dataUrl; else alimentarNF=dataUrl;
-    const box=document.getElementById('prev_'+tipo+'_'+local);
+    const box=document.getElementById('prev_'+tipo);
     if(dataUrl.startsWith('pdf:'))box.innerHTML=`<span class="pill">📄 ${dataUrl.slice(4)}</span>`;
     else box.innerHTML=`<img src="${dataUrl}" style="max-width:140px;border-radius:8px;border:1px solid var(--cinza-borda)"/>`;
   });
 }
-function salvarEntrada(local){
-  const sel=document.getElementById('al_prod_'+local).value;
-  const qt=+document.getElementById('al_qt_'+local).value;
-  const custo=+document.getElementById('al_custo_'+local).value;
-  const preco=+document.getElementById('al_preco_'+local).value;
+function salvarEntrada(){
+  const local=estUnidade;
+  const sel=document.getElementById('al_prod').value;
+  const qt=+document.getElementById('al_qt').value;
+  const custo=+document.getElementById('al_custo').value;
+  const preco=+document.getElementById('al_preco').value;
   if(!qt||qt<=0)return toast('Informe a quantidade','error');
   let prod,nome;
   if(sel==='__novo__'){
-    nome=document.getElementById('al_novonome_'+local).value.trim();
+    nome=document.getElementById('al_novonome').value.trim();
     if(!nome)return toast('Dê um nome ao produto novo','error');
-    prod={
-      id:Math.max(0,...S.produtos.map(x=>x.id))+1,
-      nome,cat:'Casa',emoji:'🏷️',custo,preco,min:10,
-      estoque:{caminhao:0,loja:0},foto:alimentarFoto||''
-    };
-    S.produtos.push(prod);
+    // não duplica: se já existe produto com mesmo nome, reusa
+    const existente=S.produtos.find(p=>p.nome.toLowerCase()===nome.toLowerCase());
+    if(existente){prod=existente;garanteEstoque(prod);prod.custo=custo;prod.preco=preco;if(alimentarFoto)prod.foto=alimentarFoto;}
+    else{
+      prod={
+        id:Math.max(0,...S.produtos.map(x=>x.id))+1,
+        nome,cat:'Casa',emoji:'🏷️',custo,preco,min:10,
+        codBarras:document.getElementById('al_cb').value.trim(),
+        estoque:{loja1:0,loja2:0,caminhao:0},foto:alimentarFoto||''
+      };
+      S.produtos.push(prod);
+    }
   }else{
     prod=S.produtos.find(p=>p.id===+sel);nome=prod.nome;
-    if(typeof prod.estoque==='number')prod.estoque={caminhao:0,loja:0};
+    garanteEstoque(prod);
     if(alimentarFoto)prod.foto=alimentarFoto;
-    prod.custo=custo;prod.preco=preco;
+    prod.custo=custo;prod.preco=preco; // atualiza preço quando reabastece
   }
   prod.estoque[local]=(prod.estoque[local]||0)+qt;
   S.entradas.push({
     id:Math.max(0,...S.entradas.map(e=>e.id),0)+1,
-    data:document.getElementById('al_data_'+local).value,
+    data:document.getElementById('al_data').value,
     local,prodId:prod.id,nome,qt,custoUnit:custo,
-    fornecedor:document.getElementById('al_forn_'+local).value,
-    obs:document.getElementById('al_obs_'+local).value,
+    fornecedor:document.getElementById('al_forn').value,
+    obs:document.getElementById('al_obs').value,
     nf:alimentarNF||'',foto:alimentarFoto||''
   });
-  // lança como despesa (compra de produtos)
-  S.despesas.push({data:document.getElementById('al_data_'+local).value,cat:'📦 Compra de produtos',desc:`Entrada: ${qt}x ${nome}`,cidade:'',valor:qt*custo});
+  S.despesas.push({data:document.getElementById('al_data').value,cat:'📦 Compra de produtos',desc:`Entrada: ${qt}x ${nome} (${LOCAIS[local].nome})`,cidade:'',valor:qt*custo});
   save();
   toast(`Entrada de ${qt}x ${nome} registrada ✅`,'success');
-  renderAlimentar(local);
+  renderAlimentar();
 }
 function gerarListaCompras(local){
   const inicio=hojeMinus(14);
@@ -2856,7 +3089,7 @@ function salvarTransfer(){
   // valida e move
   for(const it of transferItens){
     const p=S.produtos.find(x=>x.id===it.prodId);
-    if(typeof p.estoque==='number')p.estoque={caminhao:0,loja:0};
+    garanteEstoque(p);
     if(it.qt>estLoc(p,de))return toast(`Estoque insuficiente de ${p.nome}`,'error');
   }
   transferItens.forEach(it=>{
@@ -2877,13 +3110,17 @@ function salvarTransfer(){
 function renderBalanceamento(){
   const sug=[];
   S.produtos.forEach(p=>{
-    const c=estLoc(p,'caminhao'),l=estLoc(p,'loja');
-    if(c<=p.min&&l>p.min+5)sug.push(`🏪→🚚 Levar <strong>${p.nome}</strong> da loja pro caminhão (loja tem ${l}, caminhão só ${c})`);
-    else if(l<=p.min&&c>p.min+5)sug.push(`🚚→🏪 Trazer <strong>${p.nome}</strong> do caminhão pra loja (caminhão tem ${c}, loja só ${l})`);
+    // unidade com falta x unidade com sobra
+    const falta=UNIDADES_KEYS.filter(u=>estLoc(p,u)<=p.min);
+    const sobra=UNIDADES_KEYS.filter(u=>estLoc(p,u)>p.min+5).sort((a,b)=>estLoc(p,b)-estLoc(p,a));
+    if(falta.length&&sobra.length){
+      const de=sobra[0], para=falta.find(u=>u!==de);
+      if(para)sug.push(`${LOCAIS[de].emoji}→${LOCAIS[para].emoji} Levar <strong>${p.nome}</strong> de ${LOCAIS[de].nome} (${estLoc(p,de)}) para ${LOCAIS[para].nome} (só ${estLoc(p,para)})`);
+    }
   });
   document.getElementById('balanceamento').innerHTML=sug.length
-    ?sug.slice(0,8).map(s=>`<div class="alert-box" style="margin-bottom:8px"><span>⚖️</span><div style="font-size:12.5px">${s}</div></div>`).join('')
-    :'<div class="alert-box success"><span>✅</span><div>Estoques equilibrados entre os dois locais.</div></div>';
+    ?sug.slice(0,10).map(s=>`<div class="alert-box" style="margin-bottom:8px"><span>⚖️</span><div style="font-size:12.5px">${s}</div></div>`).join('')
+    :'<div class="alert-box success"><span>✅</span><div>Estoques equilibrados entre as unidades.</div></div>';
 }
 
 /* ================================================================
@@ -2917,7 +3154,7 @@ function salvarTroca(){
   const p=S.produtos.find(x=>x.id===id);
   if(!qt||qt<=0)return toast('Quantidade inválida','error');
   const localVolta=document.getElementById('tkVolta').value;
-  if(typeof p.estoque==='number')p.estoque={caminhao:0,loja:0};
+  garanteEstoque(p);
   // produto volta pro estoque do local escolhido
   p.estoque[localVolta]=(p.estoque[localVolta]||0)+qt;
   S.trocas.push({
@@ -3199,9 +3436,88 @@ function exportarTudo(){
 }
 
 /* ================================================================
+   COMBUSTÍVEL (aba do motorista)
+================================================================ */
+let comprovanteData='';
+function renderCombustivel(){
+  document.getElementById('cbData').value=hoje();
+  comprovanteData='';document.getElementById('cbPrev').innerHTML='';
+  if(!S.abastecimentos)S.abastecimentos=[];
+  const mes=hoje().substring(0,7);
+  const doMes=S.abastecimentos.filter(a=>a.data.startsWith(mes));
+  const valMes=doMes.reduce((s,a)=>s+(+a.valor||0),0);
+  const litMes=doMes.reduce((s,a)=>s+(+a.litros||0),0);
+  document.getElementById('cbMes').textContent=fmtBRk(valMes);
+  document.getElementById('cbLitros').textContent=litMes.toFixed(0)+' L';
+  document.getElementById('cbPreco').textContent=litMes?fmtBR(valMes/litMes):'R$ 0';
+  document.getElementById('cbQtd').textContent=doMes.length;
+  document.getElementById('tblAbastec').querySelector('tbody').innerHTML=S.abastecimentos.slice().reverse().map(a=>`
+    <tr>
+      <td>${dataBR(a.data)}</td>
+      <td><strong>${fmtBR(a.valor)}</strong></td>
+      <td>${a.litros?a.litros+' L':'—'}</td>
+      <td>${a.km?(+a.km).toLocaleString('pt-BR'):'—'}</td>
+      <td>${a.obs||'—'}</td>
+      <td>${a.comprovante?(a.comprovante.startsWith('pdf:')?'📄':`<img src="${a.comprovante}" style="width:30px;height:30px;object-fit:cover;border-radius:5px"/>`):'—'}</td>
+    </tr>`).join('')||'<tr><td colspan="6" class="text-mute" style="text-align:center;padding:20px">Nenhum abastecimento registrado</td></tr>';
+}
+function previewComprovante(input){
+  const f=input.files[0];if(!f)return;
+  lerImagemRedim(f,900,d=>{comprovanteData=d;
+    document.getElementById('cbPrev').innerHTML=d.startsWith('pdf:')?`<span class="pill">📄 ${d.slice(4)}</span>`:`<img src="${d}" style="max-width:160px;border-radius:8px;border:1px solid var(--cinza-borda)"/>`;
+  });
+}
+function salvarAbastecimento(){
+  const valor=+document.getElementById('cbValor').value;
+  if(!valor||valor<=0)return toast('Informe o valor pago','error');
+  if(!S.abastecimentos)S.abastecimentos=[];
+  const data=document.getElementById('cbData').value;
+  S.abastecimentos.push({
+    id:Math.max(0,...S.abastecimentos.map(a=>a.id),0)+1,
+    data,valor,litros:+document.getElementById('cbLts').value||0,
+    km:+document.getElementById('cbKm').value||0,
+    obs:document.getElementById('cbObs').value,
+    comprovante:comprovanteData||'',por:CURRENT?CURRENT.nome:''
+  });
+  // entra como despesa de combustível do caminhão
+  S.despesas.push({data,cat:'⛽ Combustível',desc:'Abastecimento'+(document.getElementById('cbObs').value?' — '+document.getElementById('cbObs').value:''),cidade:'',valor});
+  const km=+document.getElementById('cbKm').value;if(km>S.caminhao.km)S.caminhao.km=km;
+  save();toast('Abastecimento registrado ⛽','success');renderCombustivel();
+}
+
+/* ================================================================
+   USUÁRIOS
+================================================================ */
+function renderUsuarios(){
+  document.getElementById('tblUsuarios').querySelector('tbody').innerHTML=S.usuarios.map((u,i)=>`
+    <tr>
+      <td><strong>${u.nome}</strong></td>
+      <td>${u.user}</td>
+      <td><span class="text-mute">${u.senha}</span></td>
+      <td><span class="badge ${u.role==='admin'?'b-purple':u.role==='gestor'?'b-blue':'b-green'}">${u.role}</span></td>
+      <td>${u.unidade?LOCAIS[u.unidade].emoji+' '+LOCAIS[u.unidade].nome:'—'}</td>
+      <td>${u.user==='rafael'||u.user==='hiellen'?'<span class="text-mute" style="font-size:11px">protegido</span>':`<button class="btn btn-ghost btn-sm" onclick="excluirUsuario(${i})">🗑️</button>`}</td>
+    </tr>`).join('');
+}
+function salvarUsuario(){
+  const user=document.getElementById('nuUser').value.trim().toLowerCase();
+  const nome=document.getElementById('nuNome').value.trim();
+  const senha=document.getElementById('nuSenha').value;
+  const role=document.getElementById('nuRole').value;
+  if(!user||!nome||!senha)return toast('Preencha nome, usuário e senha','error');
+  if(S.usuarios.find(u=>u.user===user))return toast('Esse usuário já existe','error');
+  S.usuarios.push({user,nome,senha,role,unidade:role==='caixa'?document.getElementById('nuUni').value:''});
+  save();closeModal('modalNovoUsuario');renderUsuarios();toast('Login criado','success');
+}
+function excluirUsuario(i){
+  if(confirm('Excluir o login de '+S.usuarios[i].nome+'?')){S.usuarios.splice(i,1);save();renderUsuarios();toast('Login removido','success');}
+}
+
+/* ================================================================
    INIT
 ================================================================ */
-renderDash();
+if(CURRENT&&(S.usuarios||[]).find(u=>u.user===CURRENT.user)){bootUser();}
+else{document.getElementById('loginScreen').style.display='flex';document.querySelector('.app').style.display='none';}
 </script>
 
 </body>
