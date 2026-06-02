@@ -610,6 +610,18 @@
 
   /* divisor */
   .divider{height:1px;background:var(--cinza-borda);margin:14px 0}
+
+  /* barra do leitor de código de barras (frente de caixa) */
+  .scanner-bar{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,#0E2A5C,#1B4FA0);
+    border-radius:14px;padding:14px 18px;margin-bottom:14px;box-shadow:0 6px 20px rgba(27,79,160,.25);flex-wrap:wrap}
+  .scanner-bar #pdvBarcode{width:100%;padding:14px 16px;font-size:17px;border:3px solid #B89A4A;border-radius:10px;
+    font-weight:600;letter-spacing:.5px;outline:none}
+  .scanner-bar #pdvBarcode:focus{border-color:#16A34A;box-shadow:0 0 0 4px rgba(22,163,74,.3)}
+  .scan-feedback{color:#fff;font-size:12.5px;margin-top:6px;font-weight:500}
+  .scanner-bar.flash-ok{animation:flashOk .5s}
+  .scanner-bar.flash-err{animation:flashErr .5s}
+  @keyframes flashOk{0%{box-shadow:0 0 0 0 rgba(22,163,74,.7)}100%{box-shadow:0 6px 20px rgba(27,79,160,.25)}}
+  @keyframes flashErr{0%,50%{background:linear-gradient(135deg,#7F1D1D,#B91C1C)}100%{background:linear-gradient(135deg,#0E2A5C,#1B4FA0)}}
 </style>
 </head>
 <body>
@@ -893,21 +905,25 @@
 
       <!-- ============================ PDV ============================ -->
       <section class="page" id="page-pdv">
-        <div class="alert-box success">
-          <span style="font-size:18px">🎯</span>
-          <div>
-            Vendendo em <strong id="pdvCity">Maracanaú/CE</strong> — dia <strong id="pdvDate"></strong>.
-            <span class="text-mute">Toque no produto para adicionar ao carrinho.</span>
+        <div class="panel" style="padding:12px 16px;margin-bottom:12px">
+          <div class="flex items-center gap-12" style="flex-wrap:wrap">
+            <strong style="font-size:13px">📍 Caixa:</strong>
+            <div class="pay-buttons" id="pdvLocalBtns" style="grid-template-columns:repeat(3,1fr);max-width:480px;margin:0"></div>
+            <span class="text-mute" style="font-size:12px"><span id="pdvCity"></span> · <span id="pdvDate"></span></span>
+            <div style="flex:1"></div>
+            <button class="btn btn-primary" onclick="abrirCaixa()">🧾 Fechar caixa</button>
           </div>
         </div>
 
-        <div class="panel" style="padding:14px 18px;margin-bottom:14px">
-          <div class="flex items-center gap-12" style="flex-wrap:wrap">
-            <strong style="font-size:13px">📍 Caixa da unidade:</strong>
-            <div class="pay-buttons" id="pdvLocalBtns" style="grid-template-columns:repeat(3,1fr);max-width:520px;margin:0"></div>
-            <div style="flex:1"></div>
-            <button class="btn btn-primary" onclick="abrirCaixa()">🧾 Fechar caixa / Relatório do dia</button>
+        <!-- BARRA DO LEITOR DE CÓDIGO DE BARRAS -->
+        <div class="scanner-bar" id="scannerBar">
+          <span style="font-size:34px">📷</span>
+          <div style="flex:1;min-width:220px">
+            <input type="text" id="pdvBarcode" placeholder="Passe o leitor no código de barras ou digite e tecle Enter…" autocomplete="off"
+              onkeydown="if(event.key==='Enter')bipBarcode()"/>
+            <div id="scanFeedback" class="scan-feedback">🟢 Pronto para ler — passe o produto no leitor</div>
           </div>
+          <input type="text" id="pdvSearch" placeholder="🔎 Buscar por nome…" autocomplete="off" style="padding:11px 14px;border:1px solid var(--cinza-borda);border-radius:10px;font-size:13px;max-width:200px"/>
         </div>
 
         <div class="pdv-layout">
@@ -915,12 +931,8 @@
             <div class="panel">
               <div class="panel-head">
                 <div>
-                  <div class="panel-title"><span class="ico">🏷️</span> Catálogo</div>
+                  <div class="panel-title"><span class="ico">🏷️</span> Catálogo — toque ou bipe</div>
                   <div class="panel-sub">Tudo a R$10, exceto destaque ⭐</div>
-                </div>
-                <div class="panel-actions">
-                  <input type="text" id="pdvBarcode" placeholder="📷 Bipar código de barras…" onkeydown="if(event.key==='Enter')bipBarcode()" style="padding:7px 12px;border:1px solid var(--cinza-borda);border-radius:8px;font-size:12.5px"/>
-                  <input type="text" id="pdvSearch" placeholder="Buscar produto…" style="padding:7px 12px;border:1px solid var(--cinza-borda);border-radius:8px;font-size:12.5px"/>
                 </div>
               </div>
               <div class="prod-grid" id="pdvProdGrid"></div>
@@ -2004,7 +2016,7 @@ function goPage(p,unidade){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===p&&(!n.dataset.unidade||n.dataset.unidade===unidade)));
   if(PAGES[p]){document.getElementById('pageTitle').textContent=PAGES[p][0];document.getElementById('pageSub').textContent=PAGES[p][1];}
   if(p==='dashboard')renderDash();
-  if(p==='pdv')renderPdv();
+  if(p==='pdv'){renderPdv();setTimeout(focusBarcode,60);}
   if(p==='rota')renderRota();
   if(p==='cidades')renderCidades();
   if(p==='diario')renderDiario();
@@ -2213,7 +2225,7 @@ function renderDash(){
 ================================================================ */
 let carrinho=[];let pagamentoSel='pix';let localPdv='caminhao';
 function setLocalPdv(l){
-  localPdv=l;carrinho=[];renderPdv();
+  localPdv=l;carrinho=[];renderPdv();setTimeout(focusBarcode,40);
 }
 function renderPdvLocal(){
   // botões de unidade — caixa fica travado na sua unidade
@@ -2246,13 +2258,54 @@ function renderPdv(){
     }).join('');
   renderCart();
 }
+function beep(ok){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.connect(g);g.connect(ctx.destination);
+    o.type='square';o.frequency.value=ok?960:180;g.gain.value=0.08;
+    o.start();setTimeout(()=>{o.stop();ctx.close();},ok?80:240);
+  }catch(e){}
+}
+function focusBarcode(){
+  const inp=document.getElementById('pdvBarcode');
+  if(inp&&document.getElementById('page-pdv').classList.contains('active'))inp.focus();
+}
+function scanMsg(html,cls){
+  const fb=document.getElementById('scanFeedback');if(fb)fb.innerHTML=html;
+  const bar=document.getElementById('scannerBar');
+  if(bar){bar.classList.remove('flash-ok','flash-err');void bar.offsetWidth;bar.classList.add(cls);}
+}
+function processBarcode(code){
+  code=(code||'').trim();if(!code)return;
+  const p=S.produtos.find(x=>(x.codBarras||'')===String(code));
+  if(p){
+    const est=estLoc(p,localPdv);
+    if(est<=0){beep(false);scanMsg(`⚠️ <strong>${p.nome}</strong> está SEM ESTOQUE nesta unidade`,'flash-err');return;}
+    addCart(p.id);
+    const noCarr=carrinho.find(c=>c.prodId===p.id);
+    beep(true);
+    scanMsg(`✅ <strong>${p.emoji} ${p.nome}</strong> — ${fmtBR(p.preco)} · ${noCarr?noCarr.qt:1} no carrinho`,'flash-ok');
+  }else{
+    beep(false);
+    scanMsg(`❌ Código <strong>${code}</strong> não cadastrado. Cadastre o produto em Produtos.`,'flash-err');
+  }
+}
 function bipBarcode(){
   const inp=document.getElementById('pdvBarcode');
-  const code=inp.value.trim();if(!code)return;
-  const p=S.produtos.find(x=>(x.codBarras||'')===code);
-  if(p){addCart(p.id);inp.value='';toast(`+ ${p.nome}`,'success');}
-  else toast('Código não encontrado','error');
+  processBarcode(inp.value);
+  inp.value='';inp.focus();
 }
+/* Leitor USB funciona como teclado: captura digitação rápida mesmo sem clicar no campo */
+let scanBuffer='',scanTimer=null;
+document.addEventListener('keydown',e=>{
+  const pdvAtivo=document.getElementById('page-pdv')&&document.getElementById('page-pdv').classList.contains('active');
+  if(!pdvAtivo)return;
+  const tag=(e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='select'||tag==='textarea')return; // deixa digitar normal nos campos
+  if(e.key==='Enter'){if(scanBuffer.length>=3)processBarcode(scanBuffer);scanBuffer='';return;}
+  if(e.key&&e.key.length===1){scanBuffer+=e.key;clearTimeout(scanTimer);scanTimer=setTimeout(()=>scanBuffer='',150);}
+});
 document.getElementById('pdvSearch').addEventListener('input',renderPdv);
 document.querySelectorAll('.pay-btn[data-pay]').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.pay-btn[data-pay]').forEach(x=>x.classList.remove('active'));
@@ -2271,6 +2324,7 @@ function addCart(id){
   if(it){if(it.qt<estLoc(p,localPdv))it.qt++;else return toast('Estoque insuficiente','error')}
   else carrinho.push({prodId:id,nome:p.nome,preco:p.preco,qt:1,emoji:p.emoji});
   renderCart();
+  focusBarcode();
 }
 function changeQt(id,delta){
   const it=carrinho.find(c=>c.prodId===id);if(!it)return;
@@ -2330,6 +2384,8 @@ function finalizarVenda(){
   save();renderPdv();
   const msgParc=pagamentoSel==='cartao'&&parcelas>1?` em ${parcelas}x`:'';
   toast(`Venda ${LOCAIS[localPdv].emoji} registrada: ${fmtBR(total)}${msgParc} ✅`,'success');
+  scanMsg('🟢 Venda concluída! Pronto para a próxima — passe o produto no leitor','flash-ok');
+  setTimeout(focusBarcode,60);
 }
 
 /* ================================================================
