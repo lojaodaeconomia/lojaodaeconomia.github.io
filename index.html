@@ -1685,7 +1685,7 @@
 /* ================================================================
    ESTADO + PERSISTÊNCIA
 ================================================================ */
-const STORE_KEY='lojaoEconomia_v3';
+const STORE_KEY='lojaoEconomia_v4';
 
 /* Unidades da empresa (mesma loja, três pontos de venda) */
 const LOCAIS={
@@ -1928,6 +1928,22 @@ function seed(){
     {data:hojeMinus(5),cidade:'Beberibe/CE',cat:'problem',clima:'🌧️ Chuva',texto:'Chuva forte no fim da tarde. Precisamos pensar em lona maior. Faturamento ficou metade.'},
     {data:hojeMinus(10),cidade:'Pacatuba/CE',cat:'note',clima:'⛅ Nublado',texto:'Concorrente abriu mercadinho perto. Avaliar se vale continuar visitando às 4ªs.'},
   ];
+
+  // ============================================================
+  // MODO TESTE REAL — catálogo limpo para a Hiellen inserir os
+  // produtos reais da loja. Zera tudo que depende de produto.
+  // (Mantém: logins, unidades, cidades/rota, equipe, veículo.)
+  // ============================================================
+  state.produtos=[];
+  state.vendas=[];
+  state.entradas=[];
+  state.transferencias=[];
+  state.trocas=[];
+  state.despesas=[];
+  state.diario=[];
+  state.clientes=[];
+  state.abastecimentos=[];
+  state.fechamentos=[];
 
   return state;
 }
