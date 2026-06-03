@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Lojão da Economia — Painel da Gestão | Hiellen Lima</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -641,11 +644,13 @@
     <div class="field" style="margin-bottom:8px"><label>Senha</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••" onkeydown="if(event.key==='Enter')fazerLogin()"/></div>
     <div id="loginErro" style="color:#E11D48;font-size:12.5px;min-height:18px;margin-bottom:6px"></div>
     <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px" onclick="fazerLogin()">Entrar →</button>
-    <div style="margin-top:16px;font-size:11px;color:#94A3B8;text-align:center;line-height:1.6">
+    <button class="btn btn-ghost" style="width:100%;justify-content:center;padding:9px;font-size:12.5px;margin-top:8px" onclick="forcarAtualizacao()">🔄 Atualizar para a versão mais recente</button>
+    <div style="margin-top:14px;font-size:11px;color:#94A3B8;text-align:center;line-height:1.6">
       <strong>Logins de teste:</strong><br>
       hiellen / hiellen123 (gestão total) · samanta / samanta123 (gestora)<br>
       antoniodiego · baturite · caminhao — senha <strong>caixa123</strong>
     </div>
+    <div style="margin-top:10px;font-size:10px;color:#CBD5E1;text-align:center" id="loginVersao"></div>
   </div>
 </div>
 
@@ -1715,6 +1720,11 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
+const APP_VERSION='v8 · 03/06/2026';
+/* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
+function forcarAtualizacao(){
+  location.href=location.pathname+'?v='+Date.now();
+}
 
 /* ================================================================
    CONFIGURAÇÃO DA NUVEM (Firebase / Firestore)
@@ -2246,6 +2256,7 @@ function applyPermissions(){
   document.getElementById('userNome').textContent=CURRENT.nome;
   document.getElementById('userRole').textContent=role==='admin'?'Administrador(a)':role==='gestor'?'Gestor(a)':'Caixa — '+(LOCAIS[CURRENT.unidade]?.nome||'');
   document.getElementById('userAvatar').textContent=CURRENT.nome.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  try{document.querySelector('.brand-text p').textContent='Painel · '+APP_VERSION;}catch(e){}
   // PDV travado pro caixa
   if(role==='caixa')localPdv=CURRENT.unidade;
 }
@@ -3949,10 +3960,12 @@ function excluirUsuario(i){
    INIT
 ================================================================ */
 function iniciarApp(){
+  const lv=document.getElementById('loginVersao');if(lv)lv.textContent='Versão '+APP_VERSION;
   if(CURRENT&&(S.usuarios||[]).find(u=>u.user===CURRENT.user)){bootUser();}
   else{document.getElementById('loginScreen').style.display='flex';document.querySelector('.app').style.display='none';}
 }
 setCloudBadge(false);
+try{document.getElementById('loginVersao').textContent='Versão '+APP_VERSION;}catch(e){}
 cloudInit(()=>{ iniciarApp(); });
 </script>
 
