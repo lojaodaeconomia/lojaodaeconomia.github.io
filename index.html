@@ -1482,9 +1482,19 @@
             <button class="btn btn-ghost btn-sm" onclick="exportarTudo()">📥 Baixar backup</button>
           </div>
           <div class="setting-row">
-            <div class="setting-info"><strong>Resetar dados</strong><span>Volta para os dados de exemplo</span></div>
-            <button class="btn btn-danger btn-sm" onclick="if(confirm('Tem certeza? Isso apaga tudo.')){localStorage.clear();location.reload()}">🗑️ Resetar</button>
+            <div class="setting-info"><strong>Resetar dados</strong><span>Apaga TUDO e volta para o sistema vazio</span></div>
+            <button class="btn btn-danger btn-sm" onclick="if(confirm('Tem certeza? Isso apaga TUDO, inclusive os produtos reais.')){localStorage.clear();sessionStorage.clear();location.reload()}">🗑️ Resetar tudo</button>
           </div>
+        </div>
+
+        <div class="panel" style="border:2px solid var(--gold)">
+          <div class="panel-head"><div><div class="panel-title"><span class="ico">🧹</span> Limpeza dos dados de demonstração</div><div class="panel-sub">Remove SÓ os itens de teste (assinatura de fábrica) — preserva o que vocês cadastraram</div></div></div>
+          <div id="demoResumo" style="margin-bottom:14px"></div>
+          <div class="flex gap-12" style="flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="limparDemo()">🧹 Remover dados de demonstração</button>
+            <button class="btn btn-ghost" onclick="renderConfig()">🔄 Recontar</button>
+          </div>
+          <div class="text-mute" style="font-size:11.5px;margin-top:10px">A identificação é precisa: produtos de teste têm um código de barras gerado automaticamente. Seus produtos reais (com código de barras próprio) nunca são removidos.</div>
         </div>
       </section>
 
@@ -1948,8 +1958,86 @@ function seed(){
   return state;
 }
 
-let S=JSON.parse(localStorage.getItem(STORE_KEY)||'null')||seed();
+/* Carrega o estado. Se ainda não há dados nesta versão, MIGRA de versões
+   anteriores para NÃO PERDER o que já foi cadastrado (proteção contra reset). */
+function carregarEstado(){
+  const atual=localStorage.getItem(STORE_KEY);
+  if(atual)return JSON.parse(atual);
+  for(const k of ['lojaoEconomia_v3','lojaoEconomia_v2']){
+    const old=localStorage.getItem(k);
+    if(old){localStorage.setItem(STORE_KEY,old);console.log('Dados migrados de '+k);return JSON.parse(old);}
+  }
+  return seed();
+}
+let S=carregarEstado();
 function save(){localStorage.setItem(STORE_KEY,JSON.stringify(S))}
+/* normaliza estrutura (garante campos novos em dados migrados de versões antigas) */
+(function normaliza(){
+  const base=seed();
+  if(!Array.isArray(S.usuarios)||!S.usuarios.length)S.usuarios=base.usuarios;
+  ['vendas','despesas','entradas','transferencias','trocas','abastecimentos','fechamentos','clientes','diario','produtos','equipe','cidades','manutencoes'].forEach(k=>{if(!Array.isArray(S[k]))S[k]=base[k]||[];});
+  if(!S.config)S.config=base.config;
+  if(!S.metas)S.metas=base.metas;
+  if(!S.caminhao)S.caminhao=base.caminhao;
+  if(!S.rota)S.rota=base.rota;
+  (S.produtos||[]).forEach(p=>garanteEstoque(p));
+  save();
+})();
+
+/* ================================================================
+   LIMPEZA DE DADOS DE DEMONSTRAÇÃO (período de teste)
+   Identifica os itens de teste pela assinatura EXATA que o seed criou
+   (código de barras gerado, nomes de vendedores/clientes/despesas demo).
+   NÃO toca em nada cadastrado pelos gestores/Samantha.
+================================================================ */
+function _assinaturasDemo(){
+  return {
+    barcodes:new Set(PRODUTOS_BASE.map((_,i)=>'789'+String(1000000+i*137).slice(0,7))),
+    vend:new Set(['Carlos (motorista)','Jéssica','Pedro','Ana','Marcos']),
+    cli:new Set(['Maria Aparecida','José Roberto','Tereza Souza','Antônio Lima','Francisca']),
+    desc:new Set(['Diesel do dia','Almoço equipe','Reposição estoque','Manutenção preventiva','Pernoite equipe','Galpão estoque']),
+    diario:/Dia excepcional|Chuva forte no fim|Concorrente abriu mercadinho/
+  };
+}
+function contarDemo(){
+  const a=_assinaturasDemo();
+  const prodDemo=(S.produtos||[]).filter(p=>a.barcodes.has(p.codBarras));
+  const idsDemo=new Set(prodDemo.map(p=>p.id));
+  return {
+    idsDemo,prodDemo,
+    vendasDemo:(S.vendas||[]).filter(v=>a.vend.has(v.vendedor)||((v.itens||[]).length&&(v.itens||[]).every(i=>idsDemo.has(i.prodId)))),
+    entradasDemo:(S.entradas||[]).filter(e=>idsDemo.has(e.prodId)),
+    transfDemo:(S.transferencias||[]).filter(t=>(t.itens||[]).length&&(t.itens||[]).every(i=>idsDemo.has(i.prodId))),
+    trocasDemo:(S.trocas||[]).filter(t=>idsDemo.has(t.prodId)),
+    cliDemo:(S.clientes||[]).filter(c=>a.cli.has(c.nome)),
+    despDemo:(S.despesas||[]).filter(d=>a.desc.has(d.desc)||(d.desc||'').startsWith('Salário ')),
+    diarioDemo:(S.diario||[]).filter(e=>a.diario.test(e.texto||''))
+  };
+}
+function limparDemo(){
+  const d=contarDemo();
+  const total=d.prodDemo.length+d.vendasDemo.length+d.entradasDemo.length+d.transfDemo.length+d.trocasDemo.length+d.cliDemo.length+d.despDemo.length+d.diarioDemo.length;
+  if(!total)return toast('Nenhum dado de demonstração encontrado ✅','success');
+  const msg='LIMPEZA DE DADOS DE TESTE\n\nVou remover SOMENTE os dados de demonstração:\n\n'+
+    '• '+d.prodDemo.length+' produtos de exemplo\n'+
+    '• '+d.vendasDemo.length+' vendas fictícias\n'+
+    '• '+d.entradasDemo.length+' entradas, '+d.transfDemo.length+' transferências, '+d.trocasDemo.length+' trocas\n'+
+    '• '+d.cliDemo.length+' clientes de exemplo\n'+
+    '• '+d.despDemo.length+' despesas fictícias\n\n'+
+    '✅ Os produtos e dados cadastrados por vocês NÃO serão apagados.\n\nConfirmar a limpeza?';
+  if(!confirm(msg))return;
+  S.produtos=S.produtos.filter(p=>!d.idsDemo.has(p.id));
+  S.vendas=S.vendas.filter(v=>!d.vendasDemo.includes(v));
+  S.entradas=S.entradas.filter(e=>!d.entradasDemo.includes(e));
+  S.transferencias=S.transferencias.filter(t=>!d.transfDemo.includes(t));
+  S.trocas=S.trocas.filter(t=>!d.trocasDemo.includes(t));
+  S.clientes=S.clientes.filter(c=>!d.cliDemo.includes(c));
+  S.despesas=S.despesas.filter(x=>!d.despDemo.includes(x));
+  S.diario=S.diario.filter(e=>!d.diarioDemo.includes(e));
+  save();
+  toast('Limpeza concluída: '+total+' itens de demonstração removidos ✅','success');
+  goPage('produtos');
+}
 
 /* ================================================================
    AUTENTICAÇÃO + PERMISSÕES
@@ -2049,6 +2137,19 @@ function goPage(p,unidade){
   if(p==='caminhao')renderCaminhao();
   if(p==='combustivel')renderCombustivel();
   if(p==='usuarios')renderUsuarios();
+  if(p==='config')renderConfig();
+}
+function renderConfig(){
+  const el=document.getElementById('demoResumo');if(!el)return;
+  const d=contarDemo();
+  const total=d.prodDemo.length+d.vendasDemo.length+d.entradasDemo.length+d.transfDemo.length+d.trocasDemo.length+d.cliDemo.length+d.despDemo.length+d.diarioDemo.length;
+  const reais=(S.produtos||[]).length-d.prodDemo.length;
+  if(!total){el.innerHTML='<div class="alert-box success"><span>✅</span><div>Nenhum dado de demonstração no sistema. Tudo limpo!</div></div>';return;}
+  el.innerHTML='<div class="alert-box"><span>📋</span><div>'+
+    'Encontrei <strong>'+d.prodDemo.length+' produtos de demonstração</strong>, '+d.vendasDemo.length+' vendas fictícias, '+
+    (d.entradasDemo.length+d.transfDemo.length+d.trocasDemo.length)+' movimentações e '+d.cliDemo.length+' clientes de exemplo.<br>'+
+    '<strong style="color:var(--verde)">'+reais+' produto(s) real(is) cadastrado(s) por vocês</strong> serão mantidos.'+
+    '</div></div>';
 }
 function goEstoque(u){goPage('estoque',u);}
 document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>goPage(n.dataset.page,n.dataset.unidade)));
