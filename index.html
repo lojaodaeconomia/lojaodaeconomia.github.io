@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Firebase (nuvem) — usado quando a configuração estiver preenchida -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --azul:#1B4FA0;
@@ -721,7 +724,7 @@
       </div>
       <div class="topbar-actions">
         <button class="icon-btn" title="Notificações">🔔<span class="dot"></span></button>
-        <button class="icon-btn" title="Backup">☁️</button>
+        <button class="icon-btn" id="cloudBadge" title="Modo local" onclick="goPage('config')">💾</button>
       </div>
     </header>
 
@@ -1487,6 +1490,15 @@
           </div>
         </div>
 
+        <div class="panel">
+          <div class="panel-head"><div><div class="panel-title"><span class="ico">☁️</span> Banco de dados na nuvem</div><div class="panel-sub">Sincroniza todos os aparelhos em tempo real</div></div></div>
+          <div id="cloudStatus"></div>
+          <div class="flex gap-12" style="flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-primary" onclick="cloudPush()">📤 Enviar este aparelho para a nuvem</button>
+          </div>
+          <div class="text-mute" style="font-size:11.5px;margin-top:10px">Use "Enviar para a nuvem" UMA vez, no aparelho que tem os dados corretos, para definir a base inicial. Depois é tudo automático e ao vivo.</div>
+        </div>
+
         <div class="panel" style="border:2px solid var(--gold)">
           <div class="panel-head"><div><div class="panel-title"><span class="ico">🧹</span> Limpeza dos dados de demonstração</div><div class="panel-sub">Remove SÓ os itens de teste (assinatura de fábrica) — preserva o que vocês cadastraram</div></div></div>
           <div id="demoResumo" style="margin-bottom:14px"></div>
@@ -1696,6 +1708,22 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
+
+/* ================================================================
+   CONFIGURAÇÃO DA NUVEM (Firebase / Firestore)
+   👉 COLE AQUI a configuração do seu projeto Firebase para ativar
+   o banco de dados central (todos os aparelhos veem os mesmos dados).
+   Enquanto estiver vazio, o sistema funciona localmente (1 aparelho).
+================================================================ */
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+const CLOUD_ENABLED = !!(firebaseConfig && firebaseConfig.apiKey && firebaseConfig.projectId);
 
 /* Unidades da empresa (mesma loja, três pontos de venda) */
 const LOCAIS={
@@ -1970,7 +1998,70 @@ function carregarEstado(){
   return seed();
 }
 let S=carregarEstado();
-function save(){localStorage.setItem(STORE_KEY,JSON.stringify(S))}
+
+/* ----------- camada de nuvem (Firestore) ----------- */
+let db=null,_cloudReady=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard';
+function setCloudBadge(on){
+  const b=document.getElementById('cloudBadge');if(!b)return;
+  if(on){b.textContent='☁️';b.title='Nuvem conectada — dados sincronizados em tempo real';b.style.color='#16A34A';}
+  else if(CLOUD_ENABLED){b.textContent='⚠️';b.title='Sem conexão com a nuvem — usando dados locais';b.style.color='#F59E0B';}
+  else{b.textContent='💾';b.title='Modo local (sem nuvem)';b.style.color='';}
+}
+function rerenderAtual(){
+  try{
+    if(document.querySelector('.app').style.display==='none')return; // ainda no login
+    goPage(paginaAtual,estUnidade);
+    if(document.getElementById('demoResumo'))renderConfig();
+  }catch(e){}
+}
+function save(){
+  const json=JSON.stringify(S);
+  localStorage.setItem(STORE_KEY,json);
+  if(_cloudReady&&db&&!_applyingRemote){
+    _lastJson=json;
+    clearTimeout(_saveTimer);
+    _saveTimer=setTimeout(()=>{
+      db.collection('lojao').doc('estado').set({json:_lastJson,ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''})
+        .catch(e=>{console.error('Erro ao salvar na nuvem',e);setCloudBadge(false);});
+    },350);
+  }
+}
+function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verdade)
+  if(!db)return toast('Nuvem não configurada','error');
+  _lastJson=JSON.stringify(S);
+  db.collection('lojao').doc('estado').set({json:_lastJson,ts:Date.now(),por:(CURRENT?CURRENT.nome:'')})
+    .then(()=>toast('Dados deste aparelho enviados para a nuvem ✅','success'))
+    .catch(e=>toast('Falha ao enviar: '+e.message,'error'));
+}
+function cloudInit(onReady){
+  if(!CLOUD_ENABLED){setCloudBadge(false);onReady(false);return;}
+  let chamou=false;const pronto=ok=>{if(chamou)return;chamou=true;onReady(ok);};
+  setTimeout(()=>pronto(false),7000); // fallback: não trava se a nuvem demorar
+  try{
+    firebase.initializeApp(firebaseConfig);
+    db=firebase.firestore();
+    const ref=db.collection('lojao').doc('estado');
+    ref.onSnapshot(snap=>{
+      _cloudReady=true;setCloudBadge(true);
+      if(snap.exists&&snap.data()&&snap.data().json){
+        const json=snap.data().json;
+        if(json!==_lastJson){
+          _applyingRemote=true;
+          try{S=JSON.parse(json);(S.produtos||[]).forEach(p=>garanteEstoque(p));}catch(e){}
+          _lastJson=json;
+          localStorage.setItem(STORE_KEY,json);
+          _applyingRemote=false;
+          rerenderAtual();
+        }
+      }else{
+        // primeira vez: cria o documento na nuvem com os dados deste aparelho
+        _lastJson=JSON.stringify(S);
+        ref.set({json:_lastJson,ts:Date.now(),por:'setup'}).catch(e=>console.error(e));
+      }
+      pronto(true);
+    },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
+  }catch(e){console.error(e);setCloudBadge(false);pronto(false);}
+}
 /* normaliza estrutura (garante campos novos em dados migrados de versões antigas) */
 (function normaliza(){
   const base=seed();
@@ -2114,6 +2205,7 @@ const PAGES={
 };
 function goPage(p,unidade){
   if(!podeVer(p))return toast('Você não tem acesso a essa área','error');
+  paginaAtual=p;
   document.querySelectorAll('.page').forEach(s=>s.classList.remove('active'));
   const el=document.getElementById('page-'+p);if(!el)return;
   el.classList.add('active');
@@ -2140,6 +2232,12 @@ function goPage(p,unidade){
   if(p==='config')renderConfig();
 }
 function renderConfig(){
+  const cs=document.getElementById('cloudStatus');
+  if(cs){
+    if(!CLOUD_ENABLED)cs.innerHTML='<div class="alert-box"><span>💾</span><div><strong>Modo local</strong> — os dados ficam só neste aparelho. Configure o Firebase para unificar todos os aparelhos. (Fale com o Rafael.)</div></div>';
+    else if(_cloudReady)cs.innerHTML='<div class="alert-box success"><span>☁️</span><div><strong>Nuvem conectada</strong> — todos os aparelhos estão sincronizados em tempo real.</div></div>';
+    else cs.innerHTML='<div class="alert-box" style="border-color:#F59E0B"><span>⚠️</span><div><strong>Sem conexão com a nuvem</strong> — usando dados locais. Verifique a internet.</div></div>';
+  }
   const el=document.getElementById('demoResumo');if(!el)return;
   const d=contarDemo();
   const total=d.prodDemo.length+d.vendasDemo.length+d.entradasDemo.length+d.transfDemo.length+d.trocasDemo.length+d.cliDemo.length+d.despDemo.length+d.diarioDemo.length;
@@ -3689,8 +3787,12 @@ function excluirUsuario(i){
 /* ================================================================
    INIT
 ================================================================ */
-if(CURRENT&&(S.usuarios||[]).find(u=>u.user===CURRENT.user)){bootUser();}
-else{document.getElementById('loginScreen').style.display='flex';document.querySelector('.app').style.display='none';}
+function iniciarApp(){
+  if(CURRENT&&(S.usuarios||[]).find(u=>u.user===CURRENT.user)){bootUser();}
+  else{document.getElementById('loginScreen').style.display='flex';document.querySelector('.app').style.display='none';}
+}
+setCloudBadge(false);
+cloudInit(()=>{ iniciarApp(); });
 </script>
 
 </body>
