@@ -1746,7 +1746,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v10 · 03/06/2026';
+const APP_VERSION='v11 · 03/06/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -1834,6 +1834,11 @@ const PRODUTOS_BASE=[
   {nome:'Conjunto panelas ⭐',cat:'Cozinha',emoji:'🍳',custo:28,preco:45,estoque:6,min:3,variavel:true},
   {nome:'Ventilador mini ⭐',cat:'Eletrônicos',emoji:'🌀',custo:22,preco:35,estoque:12,min:4,variavel:true},
 ];
+/* Códigos de barras gerados para os produtos de DEMONSTRAÇÃO — usados para
+   identificar e remover exemplos (inclusive da nuvem). Produtos reais têm
+   código de barras próprio (não batem com estes), então nunca são removidos. */
+const DEMO_BARCODES=new Set(PRODUTOS_BASE.map((_,i)=>'789'+String(1000000+i*137).slice(0,7)));
+function stripDemoProdutos(arr){return (arr||[]).filter(p=>!DEMO_BARCODES.has(p.codBarras));}
 
 const EQUIPE_BASE=[
   {nome:'Hiellen Lima',funcao:'Gestão',sal:0,com:0},
@@ -2107,7 +2112,7 @@ function _union(cloudArr,localArr,keyFn){
 function _k(o,fs){return fs.map(f=>String(o[f]==null?'':o[f])).join('|').toLowerCase();}
 function mergeStates(cloud,local){
   const m=Object.assign({},cloud);
-  m.produtos=_union(cloud.produtos,local.produtos,p=>(p.codBarras&&p.codBarras.trim())?'cb:'+p.codBarras.trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase());
+  m.produtos=stripDemoProdutos(_union(cloud.produtos,local.produtos,p=>(p.codBarras&&p.codBarras.trim())?'cb:'+p.codBarras.trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase()));
   m.equipe=_union(cloud.equipe,local.equipe,e=>(e.nome||'').toLowerCase());
   m.clientes=_union(cloud.clientes,local.clientes,c=>((c.nome||'')+'|'+(c.wa||'')).toLowerCase());
   m.vendas=_union(cloud.vendas,local.vendas,v=>_k(v,['data','hora','local','total','vendedor']));
@@ -2138,7 +2143,7 @@ function cloudInit(onReady){
     // sincronização inicial: cria a base se vazia, ou MESCLA (junta os cadastros)
     db.runTransaction(async tx=>{
       const snap=await tx.get(ref);
-      if(!snap.exists){ tx.set(ref,{json:JSON.stringify(S),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
+      if(!snap.exists){ const base=Object.assign({},S,{produtos:stripDemoProdutos(S.produtos)}); tx.set(ref,{json:JSON.stringify(base),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
       else{ const cloud=JSON.parse(snap.data().json); const merged=mergeStates(cloud,S); tx.set(ref,{json:JSON.stringify(merged),ts:Date.now()}); }
     }).then(()=>{_cloudHasDoc=true;}).catch(e=>console.error('sync inicial',e)).finally(()=>{
       ref.onSnapshot(snap=>{
@@ -2148,8 +2153,17 @@ function cloudInit(onReady){
           const json=snap.data().json;
           if(json!==_lastJson){
             _applyingRemote=true;
-            try{S=JSON.parse(json);(S.produtos||[]).forEach(p=>garanteEstoque(p));}catch(e){}
-            _lastJson=json;localStorage.setItem(STORE_KEY,json);
+            try{
+              S=JSON.parse(json);
+              const n0=(S.produtos||[]).length;
+              S.produtos=stripDemoProdutos(S.produtos);
+              (S.produtos||[]).forEach(p=>garanteEstoque(p));
+              if((S.produtos||[]).length!==n0){
+                // AUTO-CURA: havia exemplo na nuvem — regrava limpo para todos
+                const jc=JSON.stringify(S);_lastJson=jc;localStorage.setItem(STORE_KEY,jc);
+                ref.set({json:jc,ts:Date.now(),por:'auto-limpeza'}).catch(()=>{});
+              }else{ _lastJson=json;localStorage.setItem(STORE_KEY,json); }
+            }catch(e){_lastJson=json;}
             _applyingRemote=false;rerenderAtual();
           }
         }
