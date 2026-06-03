@@ -1746,7 +1746,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v11 · 03/06/2026';
+const APP_VERSION='v12 · 03/06/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -1838,7 +1838,10 @@ const PRODUTOS_BASE=[
    identificar e remover exemplos (inclusive da nuvem). Produtos reais têm
    código de barras próprio (não batem com estes), então nunca são removidos. */
 const DEMO_BARCODES=new Set(PRODUTOS_BASE.map((_,i)=>'789'+String(1000000+i*137).slice(0,7)));
-function stripDemoProdutos(arr){return (arr||[]).filter(p=>!DEMO_BARCODES.has(p.codBarras));}
+/* DESATIVADO: não removemos produtos automaticamente (a gestora reaproveitou
+   itens com nomes/códigos iguais aos de exemplo; apagar perderia dados reais).
+   Esta função agora NÃO apaga nada. Limpeza só manual, via botão em Config. */
+function stripDemoProdutos(arr){return (arr||[]);}
 
 const EQUIPE_BASE=[
   {nome:'Hiellen Lima',funcao:'Gestão',sal:0,com:0},
@@ -2190,34 +2193,10 @@ function cloudInit(onReady){
    barras gerado, vendas/clientes/despesas de exemplo, e também as cidades,
    equipe e rota de exemplo). Preserva o que os gestores cadastraram. */
 (function purgaDemoAuto(){
-  if(S._demoLimpo)return;
-  try{
-    const a=_assinaturasDemo();
-    const cidadesDemo=new Set(CIDADES_BASE);
-    const equipeDemo=new Set(EQUIPE_BASE.map(e=>e.nome));
-    const d=contarDemo();
-    S.produtos=(S.produtos||[]).filter(p=>!d.idsDemo.has(p.id));
-    S.vendas=(S.vendas||[]).filter(v=>!d.vendasDemo.includes(v));
-    S.entradas=(S.entradas||[]).filter(e=>!d.entradasDemo.includes(e));
-    S.transferencias=(S.transferencias||[]).filter(t=>!d.transfDemo.includes(t));
-    S.trocas=(S.trocas||[]).filter(t=>!d.trocasDemo.includes(t));
-    S.clientes=(S.clientes||[]).filter(c=>!d.cliDemo.includes(c));
-    S.despesas=(S.despesas||[]).filter(x=>!d.despDemo.includes(x));
-    S.diario=(S.diario||[]).filter(e=>!d.diarioDemo.includes(e));
-    // equipe de exemplo
-    S.equipe=(S.equipe||[]).filter(e=>!equipeDemo.has(e.nome));
-    // abastecimentos de exemplo (lançados pelo motorista fictício)
-    S.abastecimentos=(S.abastecimentos||[]).filter(x=>x.por!=='Carlos (motorista)');
-    // manutenções de exemplo (todas vieram do seed)
-    S.manutencoes=[];
-    // cidades de exemplo (mantém só as que a gestora digitou)
-    S.cidades=(S.cidades||[]).filter(c=>!cidadesDemo.has(c));
-    // rota de exemplo (remove dias cuja cidade era de demonstração)
-    Object.keys(S.rota||{}).forEach(k=>{ if(cidadesDemo.has(S.rota[k]))delete S.rota[k]; });
-    S._demoLimpo=true;
-    save();
-    console.log('Dados de exemplo removidos automaticamente.');
-  }catch(e){console.error('purga demo',e);S._demoLimpo=true;}
+  // DESATIVADO em v12: NÃO apaga mais nada automaticamente. A gestora reaproveitou
+  // produtos com nomes/códigos iguais aos de exemplo — apagar perderia dados reais.
+  // (A limpeza de exemplos agora é só MANUAL, pelo botão em Configurações.)
+  if(!S._demoLimpo){S._demoLimpo=true;save();}
 })();
 
 /* ================================================================
