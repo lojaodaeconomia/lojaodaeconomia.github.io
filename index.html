@@ -1425,11 +1425,11 @@
         <div class="panel">
           <div class="panel-head">
             <div><div class="panel-title"><span class="ico">👥</span> Equipe</div></div>
-            <div class="panel-actions"><button class="btn btn-primary btn-sm" onclick="openModal('modalNovoMembro')">+ Novo membro</button></div>
+            <div class="panel-actions"><button class="btn btn-primary btn-sm" onclick="novoMembro()">+ Novo membro</button></div>
           </div>
           <div class="scroll-x">
             <table class="tbl" id="tblEquipe">
-              <thead><tr><th>Nome</th><th>Função</th><th>Salário fixo</th><th>Comissão %</th><th>Vendas (mês)</th><th>A receber</th></tr></thead>
+              <thead><tr><th>Nome</th><th>Função</th><th>Salário fixo</th><th>Comissão %</th><th>Vendas (mês)</th><th>A receber</th><th>Ações</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1975,9 +1975,8 @@ function seed(){
   ];
 
   // ============================================================
-  // MODO TESTE REAL — catálogo limpo para a Hiellen inserir os
-  // produtos reais da loja. Zera tudo que depende de produto.
-  // (Mantém: logins, unidades, cidades/rota, equipe, veículo.)
+  // SISTEMA EM BRANCO — sem nenhum dado de exemplo.
+  // Mantém apenas os logins e a estrutura de unidades/veículo.
   // ============================================================
   state.produtos=[];
   state.vendas=[];
@@ -1989,6 +1988,11 @@ function seed(){
   state.clientes=[];
   state.abastecimentos=[];
   state.fechamentos=[];
+  state.cidades=[];
+  state.equipe=[];
+  state.rota={};
+  state.manutencoes=[];
+  state._demoLimpo=true;
 
   return state;
 }
@@ -2041,34 +2045,65 @@ function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verd
     .then(()=>{_cloudHasDoc=true;toast('Dados deste aparelho enviados para a nuvem ✅','success');setCloudBadge(true);if(document.getElementById('demoResumo'))renderConfig();})
     .catch(e=>toast('Falha ao enviar: '+e.message,'error'));
 }
+/* ---- mesclagem aditiva de estados (nunca apaga, só junta) ---- */
+function _union(cloudArr,localArr,keyFn){
+  const out=(cloudArr||[]).slice();
+  const seen=new Set(out.map(keyFn));
+  (localArr||[]).forEach(it=>{const k=keyFn(it);if(!seen.has(k)){seen.add(k);out.push(it);}});
+  return out;
+}
+function _k(o,fs){return fs.map(f=>String(o[f]==null?'':o[f])).join('|').toLowerCase();}
+function mergeStates(cloud,local){
+  const m=Object.assign({},cloud);
+  m.produtos=_union(cloud.produtos,local.produtos,p=>(p.codBarras&&p.codBarras.trim())?'cb:'+p.codBarras.trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase());
+  m.equipe=_union(cloud.equipe,local.equipe,e=>(e.nome||'').toLowerCase());
+  m.clientes=_union(cloud.clientes,local.clientes,c=>((c.nome||'')+'|'+(c.wa||'')).toLowerCase());
+  m.vendas=_union(cloud.vendas,local.vendas,v=>_k(v,['data','hora','local','total','vendedor']));
+  m.entradas=_union(cloud.entradas,local.entradas,e=>_k(e,['data','local','prodId','qt','custoUnit']));
+  m.transferencias=_union(cloud.transferencias,local.transferencias,t=>_k(t,['data','de','para'])+'|'+(t.itens||[]).map(i=>i.prodId+'x'+i.qt).join(','));
+  m.trocas=_union(cloud.trocas,local.trocas,t=>_k(t,['data','prodId','qt','tipo','motivo']));
+  m.despesas=_union(cloud.despesas,local.despesas,d=>_k(d,['data','cat','desc','valor']));
+  m.abastecimentos=_union(cloud.abastecimentos,local.abastecimentos,a=>_k(a,['data','valor','litros','km']));
+  m.diario=_union(cloud.diario,local.diario,e=>_k(e,['data','cidade','texto']));
+  m.manutencoes=_union(cloud.manutencoes,local.manutencoes,x=>_k(x,['data','tipo','km','custo']));
+  m.fechamentos=_union(cloud.fechamentos,local.fechamentos,f=>_k(f,['data','unidade']));
+  m.usuarios=_union(cloud.usuarios,local.usuarios,u=>(u.user||'').toLowerCase());
+  m.cidades=Array.from(new Set([...(cloud.cidades||[]),...(local.cidades||[])]));
+  m.config=cloud.config||local.config; m.metas=cloud.metas||local.metas; m.caminhao=cloud.caminhao||local.caminhao;
+  m.rota=Object.assign({},local.rota||{},cloud.rota||{});
+  m._demoLimpo=true;
+  (m.produtos||[]).forEach(p=>garanteEstoque(p));
+  return m;
+}
 function cloudInit(onReady){
   if(!CLOUD_ENABLED){setCloudBadge(false);onReady(false);return;}
   let chamou=false;const pronto=ok=>{if(chamou)return;chamou=true;onReady(ok);};
-  setTimeout(()=>pronto(false),7000); // fallback: não trava se a nuvem demorar
+  setTimeout(()=>pronto(false),9000); // fallback: não trava se a nuvem demorar
   try{
     firebase.initializeApp(firebaseConfig);
     db=firebase.firestore();
     const ref=db.collection('lojao').doc('estado');
-    ref.onSnapshot(snap=>{
-      _cloudReady=true;setCloudBadge(true);
-      if(snap.exists&&snap.data()&&snap.data().json){
-        _cloudHasDoc=true;
-        const json=snap.data().json;
-        if(json!==_lastJson){
-          _applyingRemote=true;
-          try{S=JSON.parse(json);(S.produtos||[]).forEach(p=>garanteEstoque(p));}catch(e){}
-          _lastJson=json;
-          localStorage.setItem(STORE_KEY,json);
-          _applyingRemote=false;
-          rerenderAtual();
+    // sincronização inicial: cria a base se vazia, ou MESCLA (junta os cadastros)
+    db.runTransaction(async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists){ tx.set(ref,{json:JSON.stringify(S),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
+      else{ const cloud=JSON.parse(snap.data().json); const merged=mergeStates(cloud,S); tx.set(ref,{json:JSON.stringify(merged),ts:Date.now()}); }
+    }).then(()=>{_cloudHasDoc=true;}).catch(e=>console.error('sync inicial',e)).finally(()=>{
+      ref.onSnapshot(snap=>{
+        _cloudReady=true;setCloudBadge(true);
+        if(snap.exists&&snap.data()&&snap.data().json){
+          _cloudHasDoc=true;
+          const json=snap.data().json;
+          if(json!==_lastJson){
+            _applyingRemote=true;
+            try{S=JSON.parse(json);(S.produtos||[]).forEach(p=>garanteEstoque(p));}catch(e){}
+            _lastJson=json;localStorage.setItem(STORE_KEY,json);
+            _applyingRemote=false;rerenderAtual();
+          }
         }
-      }else{
-        // nuvem ainda VAZIA — não cria nada automaticamente.
-        // Um admin deve clicar "Enviar este aparelho para a nuvem" no aparelho correto.
-        _cloudHasDoc=false;
-      }
-      pronto(true);
-    },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
+        pronto(true);
+      },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
+    });
   }catch(e){console.error(e);setCloudBadge(false);pronto(false);}
 }
 /* normaliza estrutura (garante campos novos em dados migrados de versões antigas) */
@@ -2082,6 +2117,41 @@ function cloudInit(onReady){
   if(!S.rota)S.rota=base.rota;
   (S.produtos||[]).forEach(p=>garanteEstoque(p));
   save();
+})();
+
+/* PURGA AUTOMÁTICA dos dados de exemplo — roda 1x por aparelho.
+   Remove tudo que o seed criou como demonstração (produtos com código de
+   barras gerado, vendas/clientes/despesas de exemplo, e também as cidades,
+   equipe e rota de exemplo). Preserva o que os gestores cadastraram. */
+(function purgaDemoAuto(){
+  if(S._demoLimpo)return;
+  try{
+    const a=_assinaturasDemo();
+    const cidadesDemo=new Set(CIDADES_BASE);
+    const equipeDemo=new Set(EQUIPE_BASE.map(e=>e.nome));
+    const d=contarDemo();
+    S.produtos=(S.produtos||[]).filter(p=>!d.idsDemo.has(p.id));
+    S.vendas=(S.vendas||[]).filter(v=>!d.vendasDemo.includes(v));
+    S.entradas=(S.entradas||[]).filter(e=>!d.entradasDemo.includes(e));
+    S.transferencias=(S.transferencias||[]).filter(t=>!d.transfDemo.includes(t));
+    S.trocas=(S.trocas||[]).filter(t=>!d.trocasDemo.includes(t));
+    S.clientes=(S.clientes||[]).filter(c=>!d.cliDemo.includes(c));
+    S.despesas=(S.despesas||[]).filter(x=>!d.despDemo.includes(x));
+    S.diario=(S.diario||[]).filter(e=>!d.diarioDemo.includes(e));
+    // equipe de exemplo
+    S.equipe=(S.equipe||[]).filter(e=>!equipeDemo.has(e.nome));
+    // abastecimentos de exemplo (lançados pelo motorista fictício)
+    S.abastecimentos=(S.abastecimentos||[]).filter(x=>x.por!=='Carlos (motorista)');
+    // manutenções de exemplo (todas vieram do seed)
+    S.manutencoes=[];
+    // cidades de exemplo (mantém só as que a gestora digitou)
+    S.cidades=(S.cidades||[]).filter(c=>!cidadesDemo.has(c));
+    // rota de exemplo (remove dias cuja cidade era de demonstração)
+    Object.keys(S.rota||{}).forEach(k=>{ if(cidadesDemo.has(S.rota[k]))delete S.rota[k]; });
+    S._demoLimpo=true;
+    save();
+    console.log('Dados de exemplo removidos automaticamente.');
+  }catch(e){console.error('purga demo',e);S._demoLimpo=true;}
 })();
 
 /* ================================================================
@@ -2849,22 +2919,24 @@ function nextWeek(){weekOffset++;renderRota()}
 
 function renderEditRota(){
   const start=getWeekStart(weekOffset);
-  const html=[];
+  const html=['<div class="text-mute" style="font-size:12px;margin-bottom:10px">Digite a cidade ou localidade de cada dia (texto livre). As já usadas aparecem como sugestão.</div>'];
+  html.push('<datalist id="cidadesSug">'+(S.cidades||[]).map(c=>`<option value="${c}">`).join('')+'</datalist>');
   for(let i=0;i<7;i++){
     const d=new Date(start);d.setDate(d.getDate()+i);
     const key=d.toISOString().split('T')[0];
+    const val=(S.rota[key]||'').replace(/"/g,'&quot;');
     html.push(`<div class="field" style="margin-bottom:10px"><label>${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()]} ${d.toLocaleDateString('pt-BR')}</label>
-      <select data-key="${key}">
-        <option value="">— A definir —</option>
-        ${S.cidades.map(c=>`<option ${S.rota[key]===c?'selected':''}>${c}</option>`).join('')}
-      </select></div>`);
+      <input type="text" list="cidadesSug" data-key="${key}" value="${val}" placeholder="Ex: Sítio Volta, Distrito tal…" autocomplete="off"/></div>`);
   }
   document.getElementById('editRotaBody').innerHTML=html.join('');
 }
 function salvarRota(){
-  document.querySelectorAll('#editRotaBody select').forEach(sel=>{
-    if(sel.value)S.rota[sel.dataset.key]=sel.value;
-    else delete S.rota[sel.dataset.key];
+  document.querySelectorAll('#editRotaBody input[data-key]').forEach(inp=>{
+    const v=inp.value.trim();
+    if(v){
+      S.rota[inp.dataset.key]=v;
+      if(!S.cidades.includes(v))S.cidades.push(v); // memoriza pra virar sugestão depois
+    } else delete S.rota[inp.dataset.key];
   });
   save();closeModal('modalEditRota');renderRota();toast('Rota atualizada','success');
 }
@@ -2947,7 +3019,7 @@ function renderCidades(){
 }
 function agendarCidade(c){
   weekOffset=1;openModal('modalEditRota');
-  setTimeout(()=>{const first=document.querySelector('#editRotaBody select');if(first){first.value=c}},100);
+  setTimeout(()=>{const first=document.querySelector('#editRotaBody input[data-key]');if(first){first.value=c}},100);
   toast('Selecione o dia desejado','success');
 }
 
@@ -3686,18 +3758,55 @@ function renderEquipe(){
       <td>${e.com}%</td>
       <td>${vendMes.length} (${fmtBRk(recVend)})</td>
       <td><strong>${fmtBR(e.sal+comissao)}</strong></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editarMembro(${e.id})">✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="excluirMembro(${e.id})">🗑️</button>
+      </td>
     </tr>`;
-  }).join('');
+  }).join('')||'<tr><td colspan="7" class="text-mute" style="text-align:center;padding:20px">Nenhum funcionário cadastrado. Clique em “+ Novo membro”.</td></tr>';
+}
+let editMembroId=null;
+function novoMembro(){
+  editMembroId=null;
+  document.getElementById('nmNome').value='';
+  document.getElementById('nmFuncao').value='Vendedor(a)';
+  document.getElementById('nmSal').value='1500';
+  document.getElementById('nmCom').value='3';
+  document.querySelector('#modalNovoMembro .modal-head h3').textContent='Novo Membro de Equipe';
+  openModal('modalNovoMembro');
+}
+function editarMembro(id){
+  const e=S.equipe.find(x=>x.id===id);if(!e)return;
+  editMembroId=id;
+  document.getElementById('nmNome').value=e.nome;
+  document.getElementById('nmFuncao').value=e.funcao;
+  document.getElementById('nmSal').value=e.sal;
+  document.getElementById('nmCom').value=e.com;
+  document.querySelector('#modalNovoMembro .modal-head h3').textContent='Editar Funcionário';
+  openModal('modalNovoMembro');
+}
+function excluirMembro(id){
+  const e=S.equipe.find(x=>x.id===id);if(!e)return;
+  if(!confirm('Excluir o funcionário "'+e.nome+'"?'))return;
+  S.equipe=S.equipe.filter(x=>x.id!==id);
+  save();renderEquipe();toast('Funcionário removido','success');
 }
 function salvarMembro(){
-  S.equipe.push({
-    id:Math.max(0,...S.equipe.map(x=>x.id))+1,
-    nome:document.getElementById('nmNome').value,
+  const nome=document.getElementById('nmNome').value.trim();
+  if(!nome)return toast('Informe o nome','error');
+  const dados={
+    nome,
     funcao:document.getElementById('nmFuncao').value,
-    sal:+document.getElementById('nmSal').value,
-    com:+document.getElementById('nmCom').value,
-  });
-  save();closeModal('modalNovoMembro');renderEquipe();toast('Membro adicionado','success');
+    sal:+document.getElementById('nmSal').value||0,
+    com:+document.getElementById('nmCom').value||0,
+  };
+  if(editMembroId){
+    const e=S.equipe.find(x=>x.id===editMembroId);Object.assign(e,dados);
+  }else{
+    S.equipe.push({id:Math.max(0,...S.equipe.map(x=>x.id),0)+1,...dados});
+  }
+  editMembroId=null;
+  save();closeModal('modalNovoMembro');renderEquipe();toast('Funcionário salvo ✅','success');
 }
 
 /* ================================================================
