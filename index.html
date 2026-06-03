@@ -1716,12 +1716,12 @@ const STORE_KEY='lojaoEconomia_v4';
    Enquanto estiver vazio, o sistema funciona localmente (1 aparelho).
 ================================================================ */
 const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyCpiBatJKueXfk7-Mshot9vX1C0iRfRmLw",
+  authDomain: "lojao-da-economia.firebaseapp.com",
+  projectId: "lojao-da-economia",
+  storageBucket: "lojao-da-economia.firebasestorage.app",
+  messagingSenderId: "101528989586",
+  appId: "1:101528989586:web:7ef9b0bbbdb43c96925b4b"
 };
 const CLOUD_ENABLED = !!(firebaseConfig && firebaseConfig.apiKey && firebaseConfig.projectId);
 
@@ -2000,7 +2000,7 @@ function carregarEstado(){
 let S=carregarEstado();
 
 /* ----------- camada de nuvem (Firestore) ----------- */
-let db=null,_cloudReady=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard';
+let db=null,_cloudReady=false,_cloudHasDoc=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard';
 function setCloudBadge(on){
   const b=document.getElementById('cloudBadge');if(!b)return;
   if(on){b.textContent='☁️';b.title='Nuvem conectada — dados sincronizados em tempo real';b.style.color='#16A34A';}
@@ -2017,7 +2017,7 @@ function rerenderAtual(){
 function save(){
   const json=JSON.stringify(S);
   localStorage.setItem(STORE_KEY,json);
-  if(_cloudReady&&db&&!_applyingRemote){
+  if(_cloudReady&&db&&_cloudHasDoc&&!_applyingRemote){
     _lastJson=json;
     clearTimeout(_saveTimer);
     _saveTimer=setTimeout(()=>{
@@ -2028,9 +2028,10 @@ function save(){
 }
 function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verdade)
   if(!db)return toast('Nuvem não configurada','error');
+  if(!confirm('Isso vai definir os dados DESTE aparelho como a base de TODOS os aparelhos na nuvem, substituindo o que estiver lá. Confirmar?'))return;
   _lastJson=JSON.stringify(S);
   db.collection('lojao').doc('estado').set({json:_lastJson,ts:Date.now(),por:(CURRENT?CURRENT.nome:'')})
-    .then(()=>toast('Dados deste aparelho enviados para a nuvem ✅','success'))
+    .then(()=>{_cloudHasDoc=true;toast('Dados deste aparelho enviados para a nuvem ✅','success');setCloudBadge(true);if(document.getElementById('demoResumo'))renderConfig();})
     .catch(e=>toast('Falha ao enviar: '+e.message,'error'));
 }
 function cloudInit(onReady){
@@ -2044,6 +2045,7 @@ function cloudInit(onReady){
     ref.onSnapshot(snap=>{
       _cloudReady=true;setCloudBadge(true);
       if(snap.exists&&snap.data()&&snap.data().json){
+        _cloudHasDoc=true;
         const json=snap.data().json;
         if(json!==_lastJson){
           _applyingRemote=true;
@@ -2054,9 +2056,9 @@ function cloudInit(onReady){
           rerenderAtual();
         }
       }else{
-        // primeira vez: cria o documento na nuvem com os dados deste aparelho
-        _lastJson=JSON.stringify(S);
-        ref.set({json:_lastJson,ts:Date.now(),por:'setup'}).catch(e=>console.error(e));
+        // nuvem ainda VAZIA — não cria nada automaticamente.
+        // Um admin deve clicar "Enviar este aparelho para a nuvem" no aparelho correto.
+        _cloudHasDoc=false;
       }
       pronto(true);
     },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
@@ -2235,6 +2237,7 @@ function renderConfig(){
   const cs=document.getElementById('cloudStatus');
   if(cs){
     if(!CLOUD_ENABLED)cs.innerHTML='<div class="alert-box"><span>💾</span><div><strong>Modo local</strong> — os dados ficam só neste aparelho. Configure o Firebase para unificar todos os aparelhos. (Fale com o Rafael.)</div></div>';
+    else if(_cloudReady&&!_cloudHasDoc)cs.innerHTML='<div class="alert-box" style="border-color:#F59E0B"><span>⚠️</span><div><strong>Nuvem conectada, mas ainda VAZIA.</strong> Para iniciar a base, clique em <strong>"Enviar este aparelho para a nuvem"</strong> abaixo — faça isso no aparelho que tem os dados corretos.</div></div>';
     else if(_cloudReady)cs.innerHTML='<div class="alert-box success"><span>☁️</span><div><strong>Nuvem conectada</strong> — todos os aparelhos estão sincronizados em tempo real.</div></div>';
     else cs.innerHTML='<div class="alert-box" style="border-color:#F59E0B"><span>⚠️</span><div><strong>Sem conexão com a nuvem</strong> — usando dados locais. Verifique a internet.</div></div>';
   }
