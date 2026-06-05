@@ -1750,7 +1750,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v13 · 03/06/2026';
+const APP_VERSION='v14 · 03/06/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2075,7 +2075,16 @@ function carregarEstado(){
 let S=carregarEstado();
 
 /* ----------- camada de nuvem (Firestore) ----------- */
-let db=null,_cloudReady=false,_cloudHasDoc=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard';
+let db=null,_cloudReady=false,_cloudHasDoc=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard',_pendingSave=false,_pendingRemote=null;
+/* o usuário está preenchendo algo? (não pode redesenhar a tela por cima dele) */
+function usuarioEditando(){
+  const ae=document.activeElement;
+  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return true;
+  if(document.querySelector('.modal-bg.show'))return true;
+  const al=document.getElementById('est-alimentar');
+  if(al&&al.style.display!=='none'&&document.getElementById('page-estoque').classList.contains('active'))return true;
+  return false;
+}
 function setCloudBadge(on){
   const b=document.getElementById('cloudBadge');if(!b)return;
   if(on){b.textContent='☁️';b.title='Nuvem conectada — dados sincronizados em tempo real';b.style.color='#16A34A';}
@@ -2094,11 +2103,13 @@ function save(){
   localStorage.setItem(STORE_KEY,json);
   if(_cloudReady&&db&&_cloudHasDoc&&!_applyingRemote){
     _lastJson=json;
+    _pendingSave=true; // temos alteração local não confirmada — protege contra ser sobrescrita
     clearTimeout(_saveTimer);
     _saveTimer=setTimeout(()=>{
       db.collection('lojao').doc('estado').set({json:_lastJson,ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''})
-        .catch(e=>{console.error('Erro ao salvar na nuvem',e);setCloudBadge(false);});
-    },350);
+        .then(()=>{_pendingSave=false;})
+        .catch(e=>{_pendingSave=false;console.error('Erro ao salvar na nuvem',e);setCloudBadge(false);});
+    },300);
   }
 }
 function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verdade)
@@ -2158,24 +2169,23 @@ function cloudInit(onReady){
         if(snap.exists&&snap.data()&&snap.data().json){
           _cloudHasDoc=true;
           const json=snap.data().json;
-          if(json!==_lastJson){
+          // NÃO sobrescreve se há alteração local ainda sendo salva (evita perder o que a pessoa acabou de lançar)
+          if(json!==_lastJson && !_pendingSave){
             _applyingRemote=true;
             try{
               S=JSON.parse(json);
-              const n0=(S.produtos||[]).length;
-              S.produtos=stripDemoProdutos(S.produtos);
               (S.produtos||[]).forEach(p=>garanteEstoque(p));
-              if((S.produtos||[]).length!==n0){
-                // AUTO-CURA: havia exemplo na nuvem — regrava limpo para todos
-                const jc=JSON.stringify(S);_lastJson=jc;localStorage.setItem(STORE_KEY,jc);
-                ref.set({json:jc,ts:Date.now(),por:'auto-limpeza'}).catch(()=>{});
-              }else{ _lastJson=json;localStorage.setItem(STORE_KEY,json); }
+              _lastJson=json;localStorage.setItem(STORE_KEY,json);
             }catch(e){_lastJson=json;}
-            _applyingRemote=false;rerenderAtual();
+            _applyingRemote=false;
+            // NÃO redesenha a tela por cima de quem está digitando — adia até terminar
+            if(usuarioEditando())_pendingRemote=true; else rerenderAtual();
           }
         }
         pronto(true);
       },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
+      // aplica atualização adiada quando a pessoa parar de editar
+      setInterval(()=>{ if(_pendingRemote&&!usuarioEditando()){_pendingRemote=false;rerenderAtual();} },2000);
     });
   }catch(e){console.error(e);setCloudBadge(false);pronto(false);}
 }
