@@ -673,11 +673,7 @@
     <div id="loginErro" style="color:#E11D48;font-size:12.5px;min-height:18px;margin-bottom:6px"></div>
     <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px" onclick="fazerLogin()">Entrar →</button>
     <button class="btn btn-ghost" style="width:100%;justify-content:center;padding:9px;font-size:12.5px;margin-top:8px" onclick="forcarAtualizacao()">🔄 Atualizar para a versão mais recente</button>
-    <div style="margin-top:14px;font-size:11px;color:#94A3B8;text-align:center;line-height:1.6">
-      <strong>Logins de teste:</strong><br>
-      hiellen / hiellen123 (gestão total) · samanta / samanta123 (gestora)<br>
-      antoniodiego · baturite · caminhao — senha <strong>caixa123</strong>
-    </div>
+    <div style="margin-top:16px;font-size:11.5px;color:#94A3B8;text-align:center;line-height:1.5">Use seu usuário e senha.<br>Em caso de dúvida, fale com a gestão.</div>
     <div style="margin-top:10px;font-size:10px;color:#CBD5E1;text-align:center" id="loginVersao"></div>
   </div>
 </div>
@@ -1751,7 +1747,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v15 · 03/06/2026';
+const APP_VERSION='v16 · 03/06/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2276,6 +2272,12 @@ let CURRENT=JSON.parse(sessionStorage.getItem('lojaoUser')||'null');
 function fazerLogin(){
   const u=document.getElementById('loginUser').value.trim().toLowerCase();
   const s=document.getElementById('loginPass').value;
+  // Mesmo link para tudo: a senha de marketing leva ao Portal de Marketing (exclusivo da Hiellen)
+  if(u==='hiellen'&&s==='marketing@2026'){
+    sessionStorage.setItem('mktAuth','1');
+    location.href='marketing.html';
+    return;
+  }
   const found=(S.usuarios||[]).find(x=>x.user===u&&x.senha===s);
   if(!found){document.getElementById('loginErro').textContent='Usuário ou senha incorretos.';return;}
   CURRENT=found;sessionStorage.setItem('lojaoUser',JSON.stringify(found));
