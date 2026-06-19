@@ -1751,7 +1751,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v15 · 03/06/2026';
+const APP_VERSION='v16 · 17/06/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2076,15 +2076,27 @@ function carregarEstado(){
 let S=carregarEstado();
 
 /* ----------- camada de nuvem (Firestore) ----------- */
-let db=null,_cloudReady=false,_cloudHasDoc=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard',_pendingSave=false,_pendingRemote=null;
+let db=null,_cloudReady=false,_cloudHasDoc=false,_applyingRemote=false,_saveTimer=null,_lastJson='',paginaAtual='dashboard',_pendingSave=false,_pendingRemote=null,_alimentarAtivo=false;
 /* o usuário está preenchendo algo? (não pode redesenhar a tela por cima dele) */
 function usuarioEditando(){
+  // Aba "Alimentar Estoque" aberta — sinal explícito, não depende de foco/timing
+  if(_alimentarAtivo)return true;
   const ae=document.activeElement;
   if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return true;
   if(document.querySelector('.modal-bg.show'))return true;
   const al=document.getElementById('est-alimentar');
   if(al&&al.style.display!=='none'&&document.getElementById('page-estoque').classList.contains('active'))return true;
   return false;
+}
+/* aplica os dados vindos da nuvem ao estado local (uma única vez, com segurança) */
+function aplicarRemoto(json){
+  _applyingRemote=true;
+  try{
+    S=JSON.parse(json);
+    (S.produtos||[]).forEach(p=>garanteEstoque(p));
+    _lastJson=json;localStorage.setItem(STORE_KEY,json);
+  }catch(e){_lastJson=json;}
+  _applyingRemote=false;
 }
 function setCloudBadge(on){
   const b=document.getElementById('cloudBadge');if(!b)return;
@@ -2172,21 +2184,19 @@ function cloudInit(onReady){
           const json=snap.data().json;
           // NÃO sobrescreve se há alteração local ainda sendo salva (evita perder o que a pessoa acabou de lançar)
           if(json!==_lastJson && !_pendingSave){
-            _applyingRemote=true;
-            try{
-              S=JSON.parse(json);
-              (S.produtos||[]).forEach(p=>garanteEstoque(p));
-              _lastJson=json;localStorage.setItem(STORE_KEY,json);
-            }catch(e){_lastJson=json;}
-            _applyingRemote=false;
-            // NÃO redesenha a tela por cima de quem está digitando — adia até terminar
+            // SEMPRE atualiza os dados na memória — assim não perdemos vendas/lançamentos
+            // que outros aparelhos fizeram enquanto esta pessoa preenche algo.
+            aplicarRemoto(json);
+            // MAS não redesenha a tela por cima de quem está digitando: o que ela já digitou
+            // fica no formulário (DOM) e o redesenho é adiado até ela terminar.
             if(usuarioEditando())_pendingRemote=true; else rerenderAtual();
           }
         }
         pronto(true);
       },err=>{console.error('Firestore',err);setCloudBadge(false);pronto(false);});
-      // aplica atualização adiada quando a pessoa parar de editar
-      setInterval(()=>{ if(_pendingRemote&&!usuarioEditando()){_pendingRemote=false;rerenderAtual();} },2000);
+      // redesenha quando a pessoa parar de editar (sai do formulário / fica ociosa).
+      // Os dados já estão atualizados; aqui só atualizamos o que aparece na tela.
+      setInterval(()=>{ if(_pendingRemote&&!usuarioEditando()){_pendingRemote=false;rerenderAtual();} },1500);
     });
   }catch(e){console.error(e);setCloudBadge(false);pronto(false);}
 }
@@ -2345,6 +2355,7 @@ const PAGES={
 };
 function goPage(p,unidade){
   if(!podeVer(p))return toast('Você não tem acesso a essa área','error');
+  if(p!=='estoque')_alimentarAtivo=false; // saiu do estoque — libera atualizações
   paginaAtual=p;
   document.querySelectorAll('.page').forEach(s=>s.classList.remove('active'));
   const el=document.getElementById('page-'+p);if(!el)return;
@@ -3365,6 +3376,7 @@ function switchEstTab(tab,el){
   el.classList.add('active');
   document.getElementById('est-lista').style.display=tab==='lista'?'block':'none';
   document.getElementById('est-alimentar').style.display=tab==='alimentar'?'block':'none';
+  _alimentarAtivo=(tab==='alimentar');
   if(tab==='alimentar')renderAlimentar();
 }
 
@@ -3383,6 +3395,7 @@ function renderEstoque(unidade){
     document.getElementById('estTabAlimentar').classList.remove('active');
     document.getElementById('est-alimentar').style.display='none';
     document.getElementById('est-lista').style.display='block';
+    _alimentarAtivo=false;
   }
   const buscaAnterior=(document.getElementById('estSearch')||{}).value||'';
   const cont=document.getElementById('est-lista');
@@ -3455,6 +3468,7 @@ function filtrarEstoque(q){
 
 let alimentarFoto='',alimentarNF='';
 function renderAlimentar(){
+  _alimentarAtivo=true;
   const local=estUnidade;
   const nome=LOCAIS[local].nome,emoji=LOCAIS[local].emoji;
   alimentarFoto='';alimentarNF='';
