@@ -1834,7 +1834,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v19 · 07/07/2026';
+const APP_VERSION='v20 · 07/07/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2508,9 +2508,8 @@ function bootUser(){
   // página inicial conforme perfil
   const inicial=(CURRENT.role==='caixa')?'pdv':'dashboard';
   goPage(inicial);
-  // AVISO GUIADO DE ENVIO: aparece sozinho ao entrar, orientando a subir as vendas.
-  // (espera ~2s pra dar tempo de conectar na nuvem e mostrar o status certo)
-  if(CLOUD_ENABLED)setTimeout(mostrarAvisoSync,2000);
+  // (o aviso guiado de envio NÃO aparece mais sozinho — a sincronização é automática.
+  //  Continua disponível no botão 📤 da barra de cima, como reserva.)
 }
 
 /* ================================================================
@@ -4589,6 +4588,23 @@ checarAtualizacao();
 // a todos os aparelhos sem visitar loja) — só recarrega quando o caixa não está no meio de uma venda
 setInterval(checarAtualizacao,120000);
 cloudInit(()=>{ iniciarApp(); });
+/* SINCRONIZAÇÃO AUTOMÁTICA DE FUNDO: a cada 90s, se houver algo neste aparelho que ainda
+   não subiu, envia sozinho (transação que SOMA — nunca apaga). Assim tudo fica sincronizado
+   sem ninguém apertar botão. Só envia quando há novidade e quando está conectado. */
+let _ultimoAutoSync='';
+setInterval(function(){
+  if(!CLOUD_ENABLED||!db||!_cloudReady||_applyingRemote||_pendingSave)return;
+  let json;try{json=JSON.stringify(S);}catch(e){return;}
+  if(json===_ultimoAutoSync)return; // nada novo desde o último envio automático
+  _ultimoAutoSync=json;
+  const ref=db.collection('lojao').doc('estado');
+  db.runTransaction(async tx=>{
+    const snap=await tx.get(ref);
+    let out=S;
+    if(snap.exists&&snap.data()&&snap.data().json){try{out=mergeForSave(JSON.parse(snap.data().json),S);}catch(e){out=S;}}
+    tx.set(ref,{json:JSON.stringify(out),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
+  }).catch(e=>{_ultimoAutoSync='';console.error('auto-sync',e);setCloudBadge(false);});
+},90000);
 </script>
 
 </body>
