@@ -1834,7 +1834,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v20 · 07/07/2026';
+const APP_VERSION='v21 · 02/08/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2238,9 +2238,18 @@ function save(){
 /* Mesclagem para GRAVAR: mantém deste aparelho os cadastros/estoque/edições, mas SOMA
    (une) todos os registros de "histórico" com o que já está na nuvem — assim nenhuma
    venda/entrada/lançamento some quando dois aparelhos gravam ao mesmo tempo. */
+/* união onde o ESTE aparelho manda no que ele conhece, mas NÃO apaga o que só existe
+   na nuvem (cadastros/edições feitos em OUTRO aparelho). Usado para produtos/cadastros. */
+function _unionLocal(cloudArr,localArr,keyFn){
+  const out=(localArr||[]).slice();
+  const seen=new Set(out.map(keyFn));
+  (cloudArr||[]).forEach(it=>{const k=keyFn(it);if(!seen.has(k)){seen.add(k);out.push(it);}});
+  return out;
+}
 function mergeForSave(cloud,local){
   const m=Object.assign({},local);
-  const uni=(k,keyFn)=>{m[k]=_union(cloud[k],local[k],keyFn);};
+  const uni=(k,keyFn)=>{m[k]=_union(cloud[k],local[k],keyFn);};        // histórico: soma (empate = nuvem)
+  const uniL=(k,keyFn)=>{m[k]=_unionLocal(cloud[k],local[k],keyFn);};  // cadastros: mantém os deste aparelho E os que outros aparelhos cadastraram
   uni('vendas', v=>v.uid||_k(v,['data','hora','local','total','vendedor']));
   uni('entradas', e=>e.uid||_k(e,['data','local','prodId','qt','custoUnit']));
   uni('transferencias', t=>t.uid||_k(t,['data','de','para'])+'|'+(t.itens||[]).map(i=>i.prodId+'x'+i.qt).join(','));
@@ -2251,6 +2260,12 @@ function mergeForSave(cloud,local){
   uni('movCaixa', x=>x.uid||_k(x,['data','local','tipo','valor','motivo','hora']));
   uni('estornos', x=>x.uid||_k(x,['vendaId','data','hora']));
   uni('fechamentos', f=>f.uid||_k(f,['data','unidade']));
+  // CADASTROS — nunca apaga o que foi cadastrado/editado em outro aparelho (corrige "não consigo colocar mercadoria")
+  uniL('produtos', p=>(p.codBarras&&String(p.codBarras).trim())?'cb:'+String(p.codBarras).trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase());
+  uniL('usuarios', u=>(u.user||'').toLowerCase());
+  uniL('equipe', e=>(e.nome||'').toLowerCase());
+  uniL('clientes', c=>((c.nome||'')+'|'+(c.wa||'')).toLowerCase());
+  m.cidades=Array.from(new Set([...(cloud.cidades||[]),...(local.cidades||[])]));
   (m.produtos||[]).forEach(p=>garanteEstoque(p));
   return m;
 }
