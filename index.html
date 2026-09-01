@@ -1834,7 +1834,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v21 · 02/08/2026';
+const APP_VERSION='v22 · 01/09/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -2229,7 +2229,7 @@ function save(){
         if(snap.exists&&snap.data()&&snap.data().json){
           try{out=mergeForSave(JSON.parse(snap.data().json),S);}catch(e){out=S;}
         }
-        tx.set(ref,{json:JSON.stringify(out),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
+        tx.set(ref,{json:JSON.stringify(enxugar(out)),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
       }).then(()=>{_pendingSave=false;})
         .catch(e=>{_pendingSave=false;console.error('Erro ao salvar na nuvem',e);setCloudBadge(false);});
     },300);
@@ -2269,10 +2269,24 @@ function mergeForSave(cloud,local){
   (m.produtos||[]).forEach(p=>garanteEstoque(p));
   return m;
 }
+/* LIMITE DO FIRESTORE: 1 documento só pode ter 1 MB. Como o sistema guarda tudo num
+   único documento, ele enchia e as gravações começavam a FALHAR ("não registra").
+   enxugar() mantém no documento vivo apenas os históricos dos últimos COMPACT_DIAS dias
+   (o resto fica no relatório/arquivo). Assim o documento nunca estoura e sempre grava. */
+const COMPACT_DIAS=45;
+function enxugar(st){
+  if(!st||typeof st!=='object')return st;
+  const corte=hojeMinus(COMPACT_DIAS);
+  const e=Object.assign({},st);
+  ['vendas','entradas','despesas','movCaixa','estornos','diario'].forEach(k=>{
+    if(Array.isArray(e[k]))e[k]=e[k].filter(x=>!x||!x.data||x.data>=corte);
+  });
+  return e;
+}
 function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verdade)
   if(!db)return toast('Nuvem não configurada','error');
   if(!confirm('Isso vai definir os dados DESTE aparelho como a base de TODOS os aparelhos na nuvem, substituindo o que estiver lá. Confirmar?'))return;
-  _lastJson=JSON.stringify(S);
+  _lastJson=JSON.stringify(enxugar(S));
   db.collection('lojao').doc('estado').set({json:_lastJson,ts:Date.now(),por:(CURRENT?CURRENT.nome:'')})
     .then(()=>{_cloudHasDoc=true;toast('Dados deste aparelho enviados para a nuvem ✅','success');setCloudBadge(true);if(document.getElementById('demoResumo'))renderConfig();})
     .catch(e=>toast('Falha ao enviar: '+e.message,'error'));
@@ -2302,7 +2316,7 @@ function enviarParaSistema(){
     let merged;
     if(snap.exists&&snap.data()&&snap.data().json){ merged=mergeStates(JSON.parse(snap.data().json),S); }
     else{ merged=Object.assign({},S,{produtos:stripDemoProdutos(S.produtos)}); }
-    const js=JSON.stringify(merged);
+    const js=JSON.stringify(enxugar(merged));
     tx.set(ref,{json:js,ts:Date.now(),por:(CURRENT?CURRENT.nome:'')});
     return merged;
   }).then(merged=>{
@@ -2366,8 +2380,8 @@ function sincronizarNuvem(ref,pronto){
   if(_conectando)return; _conectando=true;
   db.runTransaction(async tx=>{
     const snap=await tx.get(ref);
-    if(!snap.exists){ const base=Object.assign({},S,{produtos:stripDemoProdutos(S.produtos)}); tx.set(ref,{json:JSON.stringify(base),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
-    else{ const cloud=JSON.parse(snap.data().json); const merged=mergeStates(cloud,S); tx.set(ref,{json:JSON.stringify(merged),ts:Date.now()}); }
+    if(!snap.exists){ const base=Object.assign({},S,{produtos:stripDemoProdutos(S.produtos)}); tx.set(ref,{json:JSON.stringify(enxugar(base)),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
+    else{ const cloud=JSON.parse(snap.data().json); const merged=mergeStates(cloud,S); tx.set(ref,{json:JSON.stringify(enxugar(merged)),ts:Date.now()}); }
   }).then(()=>{_cloudHasDoc=true;}).catch(e=>console.error('sync inicial',e)).finally(()=>{
     _conectando=false;
     if(_unsub){try{_unsub();}catch(e){}_unsub=null;}
