@@ -1834,7 +1834,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v22 · 01/09/2026';
+const APP_VERSION='v23 · 30/09/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -1952,8 +1952,18 @@ const CLIENTES_BASE=[
 
 const ROTA_PADRAO=['Maracanaú/CE','Pacajus/CE','Horizonte/CE','Cascavel/CE','Aquiraz/CE','Eusébio/CE','Caucaia/CE'];
 
-function hojeMinus(d){const dt=new Date();dt.setDate(dt.getDate()-d);return dt.toISOString().split('T')[0]}
-function hoje(){return new Date().toISOString().split('T')[0]}
+/* data LOCAL (Ceará). Antes usava UTC: depois das 21h a venda caía no dia seguinte. */
+function isoLocal(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function hojeMinus(d){const dt=new Date();dt.setDate(dt.getDate()-d);return isoLocal(dt)}
+function hoje(){return isoLocal(new Date())}
+/* valida número digitado: bloqueia código de barras colado no campo de valor/quantidade */
+function valorOk(id,rotulo){
+  const el=document.getElementById(id);if(!el)return true;
+  const v=+el.value;
+  if(v>99999){toast(rotulo+' está '+el.value+' — parece um código de barras. Confira o campo.','error');try{el.focus();}catch(e){}return false;}
+  if(v<0){toast(rotulo+' não pode ser negativo','error');try{el.focus();}catch(e){}return false;}
+  return true;
+}
 function fmtBR(v){return 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function fmtBRk(v){return 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{maximumFractionDigits:0})}
 function dataBR(s){const d=new Date(s+'T00:00:00');return d.toLocaleDateString('pt-BR')}
@@ -2044,14 +2054,14 @@ function seed(){
   // Rotas das próximas semanas
   for(let i=-7;i<=14;i++){
     const dt=new Date();dt.setDate(dt.getDate()+i);
-    const key=dt.toISOString().split('T')[0];
+    const key=isoLocal(dt);
     state.rota[key]=ROTA_PADRAO[Math.abs(i+7)%ROTA_PADRAO.length];
   }
 
   // Vendas dos últimos 30 dias
   for(let d=29;d>=0;d--){
     const dt=new Date();dt.setDate(dt.getDate()-d);
-    const data=dt.toISOString().split('T')[0];
+    const data=isoLocal(dt);
     const cidade=state.rota[data]||CIDADES_BASE[d%CIDADES_BASE.length];
     const numVendas=80+Math.floor(Math.random()*90);
     for(let v=0;v<numVendas;v++){
@@ -2194,6 +2204,7 @@ function aplicarRemoto(json){
   _applyingRemote=true;
   try{
     S=JSON.parse(json);
+    sanearDados(S);aplicarRemocoes(S);
     (S.produtos||[]).forEach(p=>garanteEstoque(p));
     _lastJson=json;localStorage.setItem(STORE_KEY,json);
   }catch(e){_lastJson=json;}
@@ -2212,10 +2223,13 @@ function rerenderAtual(){
     if(document.getElementById('demoResumo'))renderConfig();
   }catch(e){}
 }
+let _sujo=false,_rev=0; // _sujo = há alteração DESTE aparelho ainda não confirmada na nuvem
 function save(){
   const json=JSON.stringify(S);
   localStorage.setItem(STORE_KEY,json);
+  if(!_applyingRemote){_sujo=true;_rev++;}
   if(_cloudReady&&db&&_cloudHasDoc&&!_applyingRemote){
+    const rev=_rev;
     _lastJson=json;
     _pendingSave=true; // temos alteração local não confirmada — protege contra ser sobrescrita
     clearTimeout(_saveTimer);
@@ -2230,7 +2244,7 @@ function save(){
           try{out=mergeForSave(JSON.parse(snap.data().json),S);}catch(e){out=S;}
         }
         tx.set(ref,{json:JSON.stringify(enxugar(out)),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
-      }).then(()=>{_pendingSave=false;})
+      }).then(()=>{_pendingSave=false;if(_rev===rev)_sujo=false;})
         .catch(e=>{_pendingSave=false;console.error('Erro ao salvar na nuvem',e);setCloudBadge(false);});
     },300);
   }
@@ -2241,47 +2255,123 @@ function save(){
 /* união onde o ESTE aparelho manda no que ele conhece, mas NÃO apaga o que só existe
    na nuvem (cadastros/edições feitos em OUTRO aparelho). Usado para produtos/cadastros. */
 function _unionLocal(cloudArr,localArr,keyFn){
-  const out=(localArr||[]).slice();
-  const seen=new Set(out.map(keyFn));
-  (cloudArr||[]).forEach(it=>{const k=keyFn(it);if(!seen.has(k)){seen.add(k);out.push(it);}});
-  return out;
+  return _union(localArr,cloudArr,keyFn); // mesma soma, mas a versão DESTE aparelho vence
 }
 function mergeForSave(cloud,local){
+  sanearDados(cloud);sanearDados(local);
   const m=Object.assign({},local);
-  const uni=(k,keyFn)=>{m[k]=_union(cloud[k],local[k],keyFn);};        // histórico: soma (empate = nuvem)
-  const uniL=(k,keyFn)=>{m[k]=_unionLocal(cloud[k],local[k],keyFn);};  // cadastros: mantém os deste aparelho E os que outros aparelhos cadastraram
-  uni('vendas', v=>v.uid||_k(v,['data','hora','local','total','vendedor']));
-  uni('entradas', e=>e.uid||_k(e,['data','local','prodId','qt','custoUnit']));
-  uni('transferencias', t=>t.uid||_k(t,['data','de','para'])+'|'+(t.itens||[]).map(i=>i.prodId+'x'+i.qt).join(','));
-  uni('trocas', t=>t.uid||_k(t,['data','prodId','qt','tipo','motivo']));
-  uni('despesas', d=>d.uid||_k(d,['data','cat','desc','valor']));
-  uni('abastecimentos', a=>a.uid||_k(a,['data','valor','litros','km']));
-  uni('diario', e=>e.uid||_k(e,['data','cidade','texto']));
-  uni('movCaixa', x=>x.uid||_k(x,['data','local','tipo','valor','motivo','hora']));
-  uni('estornos', x=>x.uid||_k(x,['vendaId','data','hora']));
-  uni('fechamentos', f=>f.uid||_k(f,['data','unidade']));
-  // CADASTROS — nunca apaga o que foi cadastrado/editado em outro aparelho (corrige "não consigo colocar mercadoria")
-  uniL('produtos', p=>(p.codBarras&&String(p.codBarras).trim())?'cb:'+String(p.codBarras).trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase());
-  uniL('usuarios', u=>(u.user||'').toLowerCase());
-  uniL('equipe', e=>(e.nome||'').toLowerCase());
-  uniL('clientes', c=>((c.nome||'')+'|'+(c.wa||'')).toLowerCase());
+  // HISTÓRICO: soma tudo (empate = nuvem)
+  Object.keys(CHAVES).forEach(k=>{m[k]=_union(cloud[k],local[k],CHAVES[k]);});
+  // CADASTROS + fiados/fechamentos: mantém a edição deste aparelho E o que outros aparelhos cadastraram
+  // (fechamento refeito aqui substitui o antigo; pagamento de fiado lançado aqui vale)
+  Object.keys(CHAVES_CAD).forEach(k=>{m[k]=_unionLocal(cloud[k],local[k],CHAVES_CAD[k]);});
   m.cidades=Array.from(new Set([...(cloud.cidades||[]),...(local.cidades||[])]));
+  m.removidos=_union(cloud.removidos,local.removidos,x=>x.c+'|'+x.k+'|'+x.em);
+  aplicarRemocoes(m);
   (m.produtos||[]).forEach(p=>garanteEstoque(p));
   return m;
 }
-/* LIMITE DO FIRESTORE: 1 documento só pode ter 1 MB. Como o sistema guarda tudo num
-   único documento, ele enchia e as gravações começavam a FALHAR ("não registra").
-   enxugar() mantém no documento vivo apenas os históricos dos últimos COMPACT_DIAS dias
-   (o resto fica no relatório/arquivo). Assim o documento nunca estoura e sempre grava. */
+/* EXCLUSÕES QUE "PEGAM": antes, ao excluir uma despesa/produto/login ou estornar uma venda,
+   a sincronização trazia o item de volta da nuvem. Agora cada exclusão deixa um registro
+   (S.removidos / S.estornos) e todos os aparelhos respeitam. Um item cadastrado DE NOVO
+   depois da exclusão (criadoEm mais novo) volta a valer normalmente. */
+let _CR_=null;function _CR(){return _CR_||(_CR_={despesas:CHAVES.despesas,produtos:CHAVES_CAD.produtos,usuarios:CHAVES_CAD.usuarios,equipe:CHAVES_CAD.equipe,clientes:CHAVES_CAD.clientes});}
+function registrarRemocao(col,item){
+  if(!item||!_CR()[col])return;
+  if(!Array.isArray(S.removidos))S.removidos=[];
+  S.removidos.push({c:col,k:_CR()[col](item),em:Date.now()});
+}
+function vendaEstornada(estornos){
+  const porUid=new Set(),porDados=new Set();
+  (estornos||[]).forEach(e=>{if(!e)return;if(e.vendaUid)porUid.add(e.vendaUid);else porDados.add([e.vendaId,e.vendaData,e.total,e.local].join('|'));});
+  return v=>!!v&&(v.uid&&porUid.has(v.uid)||porDados.has([v.id,v.data,v.total,v.local].join('|')));
+}
+function aplicarRemocoes(st){
+  if(!st)return st;
+  if(Array.isArray(st.vendas)&&Array.isArray(st.estornos)&&st.estornos.length){
+    const est=vendaEstornada(st.estornos);st.vendas=st.vendas.filter(v=>!est(v));
+  }
+  const rem=st.removidos;if(!Array.isArray(rem)||!rem.length)return st;
+  const ult={};rem.forEach(r=>{if(!r||!_CR()[r.c])return;const m=ult[r.c]=ult[r.c]||new Map();m.set(r.k,Math.max(m.get(r.k)||0,r.em||0));});
+  Object.keys(ult).forEach(c=>{
+    if(!Array.isArray(st[c]))return;
+    st[c]=st[c].filter(it=>{if(!it)return true;const em=ult[c].get(_CR()[c](it));return !(em&&(it.criadoEm||0)<=em);});
+  });
+  return st;
+}
+/* LIMITE DO FIRESTORE: 1 documento só pode ter 1 MB. O documento vivo guarda só os
+   últimos COMPACT_DIAS dias; o histórico vai para os documentos mensais lojao/hist_AAAA_MM.
+   SEGURANÇA (v23): um registro antigo SÓ sai do documento vivo depois de confirmado no
+   arquivo mensal (_arq). Antes, lançamento com data retroativa ou venda presa num aparelho
+   offline era descartado sem nunca ser arquivado. */
 const COMPACT_DIAS=45;
+const ARQ_COLS=['vendas','entradas','despesas','movCaixa','estornos','diario'];
+const _arq={}; ARQ_COLS.forEach(c=>{_arq[c]=new Map();}); // chave -> quantas cópias já estão no arquivo
 function enxugar(st){
   if(!st||typeof st!=='object')return st;
   const corte=hojeMinus(COMPACT_DIAS);
   const e=Object.assign({},st);
-  ['vendas','entradas','despesas','movCaixa','estornos','diario'].forEach(k=>{
-    if(Array.isArray(e[k]))e[k]=e[k].filter(x=>!x||!x.data||x.data>=corte);
+  const cortar=soArquivados=>ARQ_COLS.forEach(k=>{
+    if(!Array.isArray(e[k]))return;
+    const vivos=new Map();
+    e[k].forEach(x=>{if(x&&x.data&&x.data<corte){const ch=CHAVES[k](x);vivos.set(ch,(vivos.get(ch)||0)+1);}});
+    if(!vivos.size)return;
+    e[k]=e[k].filter(x=>{
+      if(!x||!x.data||x.data>=corte)return true;
+      if(!soArquivados)return false;
+      const ch=CHAVES[k](x);return (_arq[k].get(ch)||0)<vivos.get(ch);
+    });
   });
+  cortar(true);
+  // trava de segurança: se mesmo assim o documento passaria do limite, corta pela data (como na v22)
+  try{if(JSON.stringify(e).length>950000){console.warn('enxugar: documento perto de 1MB, cortando pela data');cortar(false);}}catch(_){}
   return e;
+}
+/* ARQUIVAMENTO AUTOMÁTICO: registros com mais de ARQ_DIAS dias são somados (sem apagar
+   nada) no documento do mês. Só lê/grava um mês quando há algo novo para ele. */
+const ARQ_DIAS=30;
+const _arqCarregado=new Set();let _arquivando=false;
+function _contaArq(col,lista){const m=_arq[col];const g=new Map();(lista||[]).forEach(it=>{if(!it)return;const k=CHAVES[col](it);g.set(k,(g.get(k)||0)+1);});g.forEach((n,k)=>{if(n>(m.get(k)||0))m.set(k,n);});}
+async function arquivarHistorico(){
+  if(!CLOUD_ENABLED||!db||_arquivando)return;
+  _arquivando=true;
+  try{
+    const limite=hojeMinus(ARQ_DIAS);
+    const est=vendaEstornada(S.estornos);
+    const porMes={};
+    ARQ_COLS.forEach(col=>{
+      const vivos=new Map();
+      (S[col]||[]).forEach(it=>{if(!it||!it.data||it.data>=limite)return;if(col==='vendas'&&est(it))return;const k=CHAVES[col](it);(vivos.get(k)||vivos.set(k,[]).get(k)).push(it);});
+      vivos.forEach((arr,k)=>{
+        const mes=String(arr[0].data).slice(0,7);
+        if(_arqCarregado.has(mes)&&(_arq[col].get(k)||0)>=arr.length)return; // já arquivado
+        ((porMes[mes]=porMes[mes]||{})[col]=porMes[mes][col]||[]).push(...arr);
+      });
+    });
+    for(const mes of Object.keys(porMes).sort()){
+      if(!/^\d{4}-\d{2}$/.test(mes))continue;
+      const ref=db.collection('lojao').doc('hist_'+mes.replace('-','_'));
+      await db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        let doc={mes};
+        if(snap.exists&&snap.data()&&snap.data().json)doc=JSON.parse(snap.data().json);
+        let mudou=false;
+        ARQ_COLS.forEach(col=>{
+          const novos=porMes[mes][col];if(!novos)return;
+          const antes=(doc[col]||[]).length;
+          doc[col]=_union(doc[col],novos,CHAVES[col]);
+          if(doc[col].length!==antes)mudou=true;
+        });
+        if(mudou){
+          const js=JSON.stringify(doc);
+          if(js.length>1000000)throw new Error('arquivo do mês '+mes+' passaria de 1MB');
+          tx.set(ref,{json:js,ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:'auto'});
+        }
+        return doc;
+      }).then(doc=>{ARQ_COLS.forEach(col=>_contaArq(col,doc[col]));_arqCarregado.add(mes);});
+    }
+  }catch(e){console.error('arquivarHistorico',e);}
+  finally{_arquivando=false;}
 }
 function cloudPush(){ // força enviar este aparelho para a nuvem (fonte da verdade)
   if(!db)return toast('Nuvem não configurada','error');
@@ -2330,32 +2420,73 @@ function enviarParaSistema(){
     if(btn){btn.disabled=false;btn.textContent='📤 Tentar de novo';}
   });
 }
-/* ---- mesclagem aditiva de estados (nunca apaga, só junta) ---- */
+/* ---- mesclagem aditiva de estados (nunca apaga, só junta) ----
+   União MULTICONJUNTO: por chave, fica a MAIOR quantidade vista em qualquer lado.
+   Assim dois lançamentos legítimos idênticos (mesma despesa 2x no mesmo dia) não viram um só,
+   e o que já existe dos dois lados não duplica. O primeiro lado manda na ordem/versão. */
 function _union(cloudArr,localArr,keyFn){
-  const out=(cloudArr||[]).slice();
-  const seen=new Set(out.map(keyFn));
-  (localArr||[]).forEach(it=>{const k=keyFn(it);if(!seen.has(k)){seen.add(k);out.push(it);}});
+  const kf=it=>it==null?'__nulo':keyFn(it);
+  const out=(cloudArr||[]).slice(),cnt=new Map();
+  out.forEach(it=>{const k=kf(it);cnt.set(k,(cnt.get(k)||0)+1);});
+  const vis=new Map();
+  (localArr||[]).forEach(it=>{const k=kf(it);const n=(vis.get(k)||0)+1;vis.set(k,n);if(n>(cnt.get(k)||0))out.push(it);});
   return out;
 }
 function _k(o,fs){return fs.map(f=>String(o[f]==null?'':o[f])).join('|').toLowerCase();}
+/* identidade de cada tipo de registro (usa o código único 'uid' quando existe) */
+const CHAVES={
+  vendas:v=>v.uid||_k(v,['data','hora','local','total','vendedor']),
+  entradas:e=>e.uid||_k(e,['data','local','prodId','qt','custoUnit']),
+  transferencias:t=>t.uid||(_k(t,['data','de','para'])+'|'+(t.itens||[]).map(i=>i.prodId+'x'+i.qt).join(',')),
+  trocas:t=>t.uid||_k(t,['data','prodId','qt','tipo','motivo']),
+  despesas:d=>d.uid||_k(d,['data','cat','desc','valor']),
+  abastecimentos:a=>a.uid||_k(a,['data','valor','litros','km']),
+  diario:e=>e.uid||_k(e,['data','cidade','texto']),
+  manutencoes:x=>x.uid||_k(x,['data','tipo','km','custo']),
+  movCaixa:x=>x.uid||_k(x,['data','local','tipo','valor','motivo','hora']),
+  estornos:x=>x.uid||_k(x,['vendaId','data','hora'])
+};
+/* cadastros: produto é identificado pela ID (antes era pelo código de barras/nome — ao
+   adicionar o código de barras num aparelho o produto "virava outro" e duplicava) */
+const CHAVES_CAD={
+  produtos:p=>p.id!=null?'id:'+p.id:'nm:'+String(p.nome||'').toLowerCase(),
+  usuarios:u=>String(u.user||'').toLowerCase(),
+  equipe:e=>String(e.nome||'').toLowerCase(),
+  clientes:c=>(String(c.nome||'')+'|'+String(c.wa||'')).toLowerCase(),
+  fiados:f=>f.uid||(_k(f,['vendaId','data','hora','valor'])+'|'+String(f.cliente&&f.cliente.nome||'').toLowerCase()),
+  fechamentos:f=>_k(f,['data','unidade'])
+};
+function novoUid(){return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);}
+function novoIdProduto(){let id=Math.max(Date.now(),Math.max(0,...S.produtos.map(p=>Number(p.id)||0))+1);while(S.produtos.some(p=>p.id===id))id++;return id;}
+/* SANEAMENTO DETERMINÍSTICO (mesmo resultado em todos os aparelhos, nunca apaga):
+   1) custo com código de barras digitado por engano -> custo 0, valor guardado em cbNoCusto
+   2) produtos com a mesma ID -> a cópia com código de barras fica com a ID, as outras
+      recebem ID nova fixa (ID*1000+n) — assim o PDV não lança um produto no lugar do outro */
+function sanearDados(st){
+  if(!st||!Array.isArray(st.produtos))return false;
+  let mudou=false;
+  st.produtos.forEach(p=>{if(p&&Number(p.custo)>99999){if(!p.cbNoCusto)p.cbNoCusto=String(Math.round(Number(p.custo)));p.custo=0;mudou=true;}});
+  const g=new Map();st.produtos.forEach(p=>{if(!p)return;if(!g.has(p.id))g.set(p.id,[]);g.get(p.id).push(p);});
+  const usados=new Set(st.produtos.map(p=>p&&p.id));
+  g.forEach((ps,id)=>{
+    if(ps.length<2||id==null)return;
+    const ord=p=>(String(p.codBarras||'').trim()?'0':'1')+String(p.codBarras||'').trim()+'|'+String(p.nome||'')+'|'+JSON.stringify(p);
+    ps.sort((a,b)=>ord(a)<ord(b)?-1:ord(a)>ord(b)?1:0);
+    ps.slice(1).forEach((p,i)=>{let nid=Number(id)*1000+i+1;while(usados.has(nid))nid++;usados.add(nid);p.id=nid;mudou=true;});
+  });
+  return mudou;
+}
 function mergeStates(cloud,local){
+  sanearDados(cloud);sanearDados(local);
   const m=Object.assign({},cloud);
-  m.produtos=stripDemoProdutos(_union(cloud.produtos,local.produtos,p=>(p.codBarras&&p.codBarras.trim())?'cb:'+p.codBarras.trim().toLowerCase():'nm:'+(p.nome||'').toLowerCase()));
-  m.equipe=_union(cloud.equipe,local.equipe,e=>(e.nome||'').toLowerCase());
-  m.clientes=_union(cloud.clientes,local.clientes,c=>((c.nome||'')+'|'+(c.wa||'')).toLowerCase());
-  m.vendas=_union(cloud.vendas,local.vendas,v=>_k(v,['data','hora','local','total','vendedor']));
-  m.entradas=_union(cloud.entradas,local.entradas,e=>_k(e,['data','local','prodId','qt','custoUnit']));
-  m.transferencias=_union(cloud.transferencias,local.transferencias,t=>_k(t,['data','de','para'])+'|'+(t.itens||[]).map(i=>i.prodId+'x'+i.qt).join(','));
-  m.trocas=_union(cloud.trocas,local.trocas,t=>_k(t,['data','prodId','qt','tipo','motivo']));
-  m.despesas=_union(cloud.despesas,local.despesas,d=>_k(d,['data','cat','desc','valor']));
-  m.abastecimentos=_union(cloud.abastecimentos,local.abastecimentos,a=>_k(a,['data','valor','litros','km']));
-  m.diario=_union(cloud.diario,local.diario,e=>_k(e,['data','cidade','texto']));
-  m.manutencoes=_union(cloud.manutencoes,local.manutencoes,x=>_k(x,['data','tipo','km','custo']));
-  m.fechamentos=_union(cloud.fechamentos,local.fechamentos,f=>_k(f,['data','unidade']));
-  m.usuarios=_union(cloud.usuarios,local.usuarios,u=>(u.user||'').toLowerCase());
+  Object.keys(CHAVES).forEach(k=>{m[k]=_union(cloud[k],local[k],CHAVES[k]);});
+  Object.keys(CHAVES_CAD).forEach(k=>{m[k]=_union(cloud[k],local[k],CHAVES_CAD[k]);});
+  m.produtos=stripDemoProdutos(m.produtos);
   m.cidades=Array.from(new Set([...(cloud.cidades||[]),...(local.cidades||[])]));
   m.config=cloud.config||local.config; m.metas=cloud.metas||local.metas; m.caminhao=cloud.caminhao||local.caminhao;
   m.rota=Object.assign({},local.rota||{},cloud.rota||{});
+  m.removidos=_union(cloud.removidos,local.removidos,x=>x.c+'|'+x.k+'|'+x.em);
+  aplicarRemocoes(m);
   m._demoLimpo=true;
   (m.produtos||[]).forEach(p=>garanteEstoque(p));
   return m;
@@ -2381,8 +2512,9 @@ function sincronizarNuvem(ref,pronto){
   db.runTransaction(async tx=>{
     const snap=await tx.get(ref);
     if(!snap.exists){ const base=Object.assign({},S,{produtos:stripDemoProdutos(S.produtos)}); tx.set(ref,{json:JSON.stringify(enxugar(base)),ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); }
-    else{ const cloud=JSON.parse(snap.data().json); const merged=mergeStates(cloud,S); tx.set(ref,{json:JSON.stringify(enxugar(merged)),ts:Date.now()}); }
-  }).then(()=>{_cloudHasDoc=true;}).catch(e=>console.error('sync inicial',e)).finally(()=>{
+    else{ const atual=snap.data().json; const cloud=JSON.parse(atual); const merged=mergeStates(cloud,S); const js=JSON.stringify(enxugar(merged));
+      if(js!==atual)tx.set(ref,{json:js,ts:Date.now(),por:(CURRENT?CURRENT.nome:'auto')}); } // só grava se este aparelho trouxe algo novo
+  }).then(()=>{_cloudHasDoc=true;_sujo=false;}).catch(e=>console.error('sync inicial',e)).finally(()=>{
     _conectando=false;
     if(_unsub){try{_unsub();}catch(e){}_unsub=null;}
     _unsub=ref.onSnapshot(snap=>{
@@ -2413,6 +2545,7 @@ function sincronizarNuvem(ref,pronto){
   if(!S.metas)S.metas=base.metas;
   if(!S.caminhao)S.caminhao=base.caminhao;
   if(!S.rota)S.rota=base.rota;
+  sanearDados(S);aplicarRemocoes(S);
   (S.produtos||[]).forEach(p=>garanteEstoque(p));
   save();
 })();
@@ -2717,7 +2850,7 @@ function renderDash(){
   // Gráficos
   destroy('rec30');
   const last30=[];const today=new Date();
-  for(let i=29;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);last30.push(d.toISOString().split('T')[0])}
+  for(let i=29;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);last30.push(isoLocal(d))}
   const data30=last30.map(d=>S.vendas.filter(v=>v.data===d).reduce((s,v)=>s+v.total,0));
   charts.rec30=new Chart(document.getElementById('chartReceita30'),{
     type:'line',
@@ -2791,7 +2924,7 @@ function renderDash(){
   if(pctPix>60)insights.push({tipo:'',ico:'📱',txt:`<strong>${pctPix}%</strong> das vendas são via PIX. Considere imprimir um QR Code grande do PIX no caminhão.`});
   // Próxima cidade
   const amanha=new Date();amanha.setDate(amanha.getDate()+1);
-  const cAmanha=S.rota[amanha.toISOString().split('T')[0]];
+  const cAmanha=S.rota[isoLocal(amanha)];
   if(cAmanha){
     const clientesAm=S.clientes.filter(c=>c.cidade===cAmanha&&c.aceitaWa).length;
     if(clientesAm>0)insights.push({tipo:'info',ico:'📣',txt:`Amanhã o caminhão vai para <strong>${cAmanha}</strong>. Há <strong>${clientesAm} clientes cadastrados</strong> nessa cidade. <a onclick="goPage('clientes')" style="color:var(--azul);cursor:pointer">Disparar aviso WhatsApp →</a>`});
@@ -3023,8 +3156,8 @@ function finalizarVenda(){
   if(pagamentoSel==='fiado'&&fiadoCliente){
     if(!Array.isArray(S.fiados))S.fiados=[];
     S.fiados.push({
-      id:Math.max(0,...S.fiados.map(f=>f.id||0),0)+1,
-      data:venda.data,hora:venda.hora,vendaId:venda.id,
+      id:Math.max(0,...S.fiados.map(f=>f.id||0),0)+1,uid:novoUid(),
+      data:venda.data,hora:venda.hora,vendaId:venda.id,vendaUid:venda.uid,
       cliente:fiadoCliente,local:localPdv,
       valor:total,pago:0,quitado:false,pagamentos:[],
       itens:venda.itens
@@ -3229,7 +3362,7 @@ function registrarMovCaixa(tipo){
   if(valor<=0)return toast('Valor inválido','error');
   const motivo=prompt('Motivo (opcional):')||'';
   if(!Array.isArray(S.movCaixa))S.movCaixa=[];
-  S.movCaixa.push({id:Math.max(0,...S.movCaixa.map(m=>m.id||0),0)+1,data,local:filtro,tipo,valor,motivo,por:CURRENT?fixNome(CURRENT.nome):'',hora:new Date().toLocaleTimeString('pt-BR')});
+  S.movCaixa.push({id:Math.max(0,...S.movCaixa.map(m=>m.id||0),0)+1,uid:novoUid(),data,local:filtro,tipo,valor,motivo,por:CURRENT?fixNome(CURRENT.nome):'',hora:new Date().toLocaleTimeString('pt-BR')});
   save();renderCaixa();
   toast((tipo==='sangria'?'Sangria':'Suprimento')+' de '+fmtBR(valor)+' registrado ✅','success');
 }
@@ -3266,7 +3399,7 @@ function renderRota(){
   const hojeStr=hoje();
   const sugList='<datalist id="cidadesSugRota">'+(S.cidades||[]).map(c=>`<option value="${(c||'').replace(/"/g,'&quot;')}">`).join('')+'</datalist>';
   document.getElementById('routeWeek').innerHTML=sugList+days.map(d=>{
-    const key=d.toISOString().split('T')[0];
+    const key=isoLocal(d);
     const cidade=(S.rota[key]||'').replace(/"/g,'&quot;');
     const isToday=key===hojeStr;
     const vendas=S.vendas.filter(v=>v.data===key);
@@ -3319,7 +3452,7 @@ function renderEditRota(){
   html.push('<datalist id="cidadesSug">'+(S.cidades||[]).map(c=>`<option value="${c}">`).join('')+'</datalist>');
   for(let i=0;i<7;i++){
     const d=new Date(start);d.setDate(d.getDate()+i);
-    const key=d.toISOString().split('T')[0];
+    const key=isoLocal(d);
     const val=(S.rota[key]||'').replace(/"/g,'&quot;');
     html.push(`<div class="field" style="margin-bottom:10px"><label>${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()]} ${d.toLocaleDateString('pt-BR')}</label>
       <input type="text" list="cidadesSug" data-key="${key}" value="${val}" placeholder="Ex: Sítio Volta, Distrito tal…" autocomplete="off"/></div>`);
@@ -3437,6 +3570,7 @@ function salvarDiario(){
   const txt=document.getElementById('dText').value.trim();
   if(!txt)return toast('Escreva algo','error');
   S.diario.push({
+    uid:novoUid(),
     data:document.getElementById('dDate').value,
     cidade:document.getElementById('dCity').value,
     cat:document.getElementById('dCat').value,
@@ -3544,21 +3678,22 @@ function renderTblVendasGlobal(){
       <td><strong>${fmtBR(v.total)}</strong></td>
       <td>${pgIco}</td>
       <td>${fixNome(v.vendedor)||'—'}</td>
-      <td>${podeEstornar?`<button class="btn btn-ghost btn-sm" title="Estornar venda (devolve o estoque)" onclick="estornarVenda(${v.id})">↩️</button>`:''}</td>
+      <td>${podeEstornar?`<button class="btn btn-ghost btn-sm" title="Estornar venda (devolve o estoque)" onclick="estornarVenda(${v.id},'${v.uid||''}')">↩️</button>`:''}</td>
     </tr>`;
   }).join('')||'<tr><td colspan="8" class="text-mute" style="text-align:center;padding:20px">Nenhuma venda neste filtro.</td></tr>';
 }
 /* Estorna (cancela) uma venda: devolve o estoque ao local e remove dos relatórios.
    Guarda um registro em S.estornos para histórico. Só gestor/admin. */
-function estornarVenda(id){
-  const v=S.vendas.find(x=>x.id===id);if(!v)return;
+function estornarVenda(id,uid){
+  // procura pelo código único (ids repetidos entre aparelhos estornavam DUAS vendas)
+  const v=uid?S.vendas.find(x=>x.uid===uid):S.vendas.find(x=>x.id===id&&!x.uid);if(!v)return toast('Venda não encontrada — atualize a tela','error');
   if(!(CURRENT&&(CURRENT.role==='admin'||CURRENT.role==='gestor')))return toast('Apenas gestores podem estornar','error');
   const ondeVolta=(LOCAIS[v.local]||{}).nome||v.local||'estoque';
   if(!confirm(`Estornar a venda de ${fmtBR(v.total)} (${dataBR(v.data)} ${v.hora||''})?\n\n• O estoque dos itens volta para ${ondeVolta}\n• A venda sai dos relatórios\n\nEsta ação não pode ser desfeita.`))return;
   (v.itens||[]).forEach(it=>{const p=S.produtos.find(x=>x.id===it.prodId);if(p&&LOCAIS[v.local]){garanteEstoque(p);p.estoque[v.local]=(p.estoque[v.local]||0)+it.qt;}});
   if(!Array.isArray(S.estornos))S.estornos=[];
-  S.estornos.push({data:hoje(),hora:new Date().toLocaleTimeString('pt-BR'),vendaId:v.id,vendaData:v.data,total:v.total,local:v.local,pagamento:v.pagamento,por:CURRENT?CURRENT.nome:'',itens:v.itens});
-  S.vendas=S.vendas.filter(x=>x.id!==id);
+  S.estornos.push({uid:novoUid(),data:hoje(),hora:new Date().toLocaleTimeString('pt-BR'),vendaId:v.id,vendaUid:v.uid||'',vendaData:v.data,total:v.total,local:v.local,pagamento:v.pagamento,por:CURRENT?CURRENT.nome:'',itens:v.itens});
+  S.vendas=S.vendas.filter(x=>x!==v);
   save();
   renderTblVendasGlobal();
   toast('Venda estornada e estoque devolvido ✅','success');
@@ -3702,7 +3837,8 @@ function editarProduto(id){
   document.getElementById('npEmoji').value=p.emoji||'🏷️';
   document.getElementById('npCusto').value=p.custo;
   document.getElementById('npPreco').value=p.preco;
-  document.getElementById('npCB').value=p.codBarras||'';
+  document.getElementById('npCB').value=p.codBarras||p.cbNoCusto||'';
+  if(!p.codBarras&&p.cbNoCusto)setTimeout(()=>toast('O código de barras estava no campo CUSTO — movi para o lugar certo. Informe o custo e salve.',''),300);
   document.getElementById('npMin').value=p.min;
   document.getElementById('npEstL1').value=p.estoque.loja1;
   document.getElementById('npEstL2').value=p.estoque.loja2;
@@ -3714,12 +3850,14 @@ function excluirProduto(id){
   const p=S.produtos.find(x=>x.id===id);if(!p)return;
   if(CURRENT&&CURRENT.role==='caixa')return toast('Apenas gestores podem excluir produtos','error');
   if(!confirm('Excluir o produto "'+p.nome+'"?\n\nO histórico de vendas é mantido — só sai do catálogo e do estoque.'))return;
+  registrarRemocao('produtos',p);
   S.produtos=S.produtos.filter(x=>x.id!==id);
   save();renderProdutos();toast('Produto excluído','success');
 }
 function salvarProduto(){
   const nome=document.getElementById('npNome').value.trim();
   if(!nome)return toast('Nome obrigatório','error');
+  if(!valorOk('npCusto','Custo')||!valorOk('npPreco','Preço de venda')||!valorOk('npEstL1','Estoque')||!valorOk('npEstL2','Estoque')||!valorOk('npEstCam','Estoque')||!valorOk('npMin','Estoque mínimo'))return;
   lerImagemRedim(document.getElementById('npFoto').files[0],500,foto=>{
     const dados={
       nome,
@@ -3737,7 +3875,7 @@ function salvarProduto(){
       editProdutoId=null;
       save();closeModal('modalNovoProduto');renderProdutos();toast('Produto atualizado ✅','success');
     }else{
-      S.produtos.push({id:Math.max(0,...S.produtos.map(x=>x.id),0)+1,...dados,foto:foto||''});
+      S.produtos.push({id:novoIdProduto(),criadoEm:Date.now(),...dados,foto:foto||''});
       save();closeModal('modalNovoProduto');renderProdutos();toast('Produto criado','success');
     }
   });
@@ -3935,6 +4073,7 @@ function salvarEntrada(){
   const custo=+document.getElementById('al_custo').value;
   const preco=+document.getElementById('al_preco').value;
   if(!qt||qt<=0)return toast('Informe a quantidade','error');
+  if(!valorOk('al_qt','Quantidade')||!valorOk('al_custo','Custo unitário')||!valorOk('al_preco','Preço de venda'))return;
   let prod,nome;
   if(sel==='__novo__'){
     nome=document.getElementById('al_novonome').value.trim();
@@ -3944,7 +4083,7 @@ function salvarEntrada(){
     if(existente){prod=existente;garanteEstoque(prod);if(alimentarFoto)prod.foto=alimentarFoto;/* mantém o preço atual — não reseta */}
     else{
       prod={
-        id:Math.max(0,...S.produtos.map(x=>x.id))+1,
+        id:novoIdProduto(),criadoEm:Date.now(),
         nome,cat:'Casa',emoji:'🏷️',custo,preco,min:10,
         codBarras:document.getElementById('al_cb').value.trim(),
         estoque:{loja1:0,loja2:0,caminhao:0},foto:alimentarFoto||''
@@ -3952,21 +4091,23 @@ function salvarEntrada(){
       S.produtos.push(prod);
     }
   }else{
-    prod=S.produtos.find(p=>p.id===+sel);nome=prod.nome;
+    prod=S.produtos.find(p=>p.id===+sel);
+    if(!prod)return toast('Produto não encontrado — escolha de novo na lista','error');
+    nome=prod.nome;
     garanteEstoque(prod);
     if(alimentarFoto)prod.foto=alimentarFoto;
     prod.custo=custo;prod.preco=preco; // atualiza preço quando reabastece
   }
   prod.estoque[local]=(prod.estoque[local]||0)+qt;
   S.entradas.push({
-    id:Math.max(0,...S.entradas.map(e=>e.id),0)+1,
+    id:Math.max(0,...S.entradas.map(e=>e.id),0)+1,uid:novoUid(),
     data:document.getElementById('al_data').value,
     local,prodId:prod.id,nome,qt,custoUnit:custo,
     fornecedor:document.getElementById('al_forn').value,
     obs:document.getElementById('al_obs').value,
     nf:alimentarNF||'',foto:alimentarFoto||''
   });
-  S.despesas.push({data:document.getElementById('al_data').value,cat:'📦 Compra de produtos',desc:`Entrada: ${qt}x ${nome} (${LOCAIS[local].nome})`,cidade:'',valor:qt*custo});
+  S.despesas.push({uid:novoUid(),data:document.getElementById('al_data').value,cat:'📦 Compra de produtos',desc:`Entrada: ${qt}x ${nome} (${LOCAIS[local].nome})`,cidade:'',valor:qt*custo});
   save();
   toast(`Entrada de ${qt}x ${nome} registrada ✅`,'success');
   renderAlimentar();
@@ -4058,7 +4199,7 @@ function salvarTransfer(){
     p.estoque[para]=(p.estoque[para]||0)+it.qt;
   });
   S.transferencias.push({
-    id:Math.max(0,...S.transferencias.map(t=>t.id),0)+1,
+    id:Math.max(0,...S.transferencias.map(t=>t.id),0)+1,uid:novoUid(),
     data:document.getElementById('trData').value,
     de,para,itens:transferItens.slice(),
     obs:document.getElementById('trObs').value
@@ -4188,7 +4329,7 @@ function salvarTroca(){
   // produto volta pro estoque do local escolhido
   p.estoque[localVolta]=(p.estoque[localVolta]||0)+qt;
   S.trocas.push({
-    id:Math.max(0,...S.trocas.map(t=>t.id),0)+1,
+    id:Math.max(0,...S.trocas.map(t=>t.id),0)+1,uid:novoUid(),
     data:document.getElementById('tkData').value,
     tipo:document.getElementById('tkTipo').value,
     prodId:id,nome:p.nome,qt,
@@ -4226,7 +4367,7 @@ function renderClientes(){
 }
 function salvarCliente(){
   S.clientes.push({
-    id:Math.max(0,...S.clientes.map(x=>x.id))+1,
+    id:Math.max(0,...S.clientes.map(x=>x.id),0)+1,criadoEm:Date.now(),
     nome:document.getElementById('ncNome').value,
     wa:document.getElementById('ncWa').value,
     cidade:document.getElementById('ncCidade').value,
@@ -4268,7 +4409,7 @@ function renderFinanceiro(){
   const labels=[],recs=[],desps=[];
   for(let i=5;i>=0;i--){
     const dt=new Date();dt.setMonth(dt.getMonth()-i);
-    const k=dt.toISOString().substring(0,7);
+    const k=isoLocal(dt).substring(0,7);
     labels.push(dt.toLocaleDateString('pt-BR',{month:'short'}));
     recs.push(S.vendas.filter(v=>v.data.startsWith(k)).reduce((s,v)=>s+v.total,0));
     desps.push(S.despesas.filter(d=>d.data.startsWith(k)).reduce((s,d)=>s+d.valor,0));
@@ -4315,7 +4456,7 @@ function renderFinanceiro(){
 function renderDespesas(){
   const sel=document.getElementById('ndCidade');
   sel.innerHTML='<option value="">—</option>'+S.cidades.map(c=>`<option>${c}</option>`).join('');
-  const arr=S.despesas.slice().reverse().slice(0,80);
+  const arr=S.despesas.slice().reverse().slice(0,80);_despTela=arr;
   document.getElementById('tblDespesas').querySelector('tbody').innerHTML=arr.map((d,i)=>`
     <tr>
       <td>${dataBR(d.data)}</td>
@@ -4323,12 +4464,23 @@ function renderDespesas(){
       <td>${d.desc}</td>
       <td>${d.cidade||'—'}</td>
       <td><strong>${fmtBR(d.valor)}</strong></td>
-      <td><button class="btn btn-ghost btn-sm" onclick="delDespesa(${S.despesas.indexOf(d)})">🗑️</button></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delDespesa(${i})">🗑️</button></td>
     </tr>`).join('');
 }
-function delDespesa(idx){if(confirm('Excluir essa despesa?')){S.despesas.splice(idx,1);save();renderDespesas();toast('Despesa removida','success')}}
+let _despTela=[];
+function delDespesa(i){
+  const d=_despTela[i];if(!d)return;
+  if(!confirm('Excluir essa despesa?'))return;
+  // acha a mesma despesa mesmo se a lista foi atualizada pela nuvem (antes podia excluir a errada)
+  let idx=S.despesas.indexOf(d);
+  if(idx<0){const k=CHAVES.despesas(d);idx=S.despesas.findIndex(x=>CHAVES.despesas(x)===k);}
+  if(idx<0)return toast('Despesa não encontrada — atualize a tela','error');
+  registrarRemocao('despesas',S.despesas[idx]);
+  S.despesas.splice(idx,1);save();renderDespesas();toast('Despesa removida','success');
+}
 function salvarDespesa(){
   const desp={
+    uid:novoUid(),
     data:document.getElementById('ndData').value,
     cat:document.getElementById('ndCat').value,
     desc:document.getElementById('ndDesc').value,
@@ -4424,6 +4576,7 @@ function editarMembro(id){
 function excluirMembro(id){
   const e=S.equipe.find(x=>x.id===id);if(!e)return;
   if(!confirm('Excluir o funcionário "'+e.nome+'"?'))return;
+  registrarRemocao('equipe',e);
   S.equipe=S.equipe.filter(x=>x.id!==id);
   save();renderEquipe();toast('Funcionário removido','success');
 }
@@ -4439,7 +4592,7 @@ function salvarMembro(){
   if(editMembroId){
     const e=S.equipe.find(x=>x.id===editMembroId);Object.assign(e,dados);
   }else{
-    S.equipe.push({id:Math.max(0,...S.equipe.map(x=>x.id),0)+1,...dados});
+    S.equipe.push({id:Math.max(0,...S.equipe.map(x=>x.id),0)+1,criadoEm:Date.now(),...dados});
   }
   editMembroId=null;
   save();closeModal('modalNovoMembro');renderEquipe();toast('Funcionário salvo ✅','success');
@@ -4476,6 +4629,7 @@ function renderCaminhao(){
 }
 function salvarManutencao(){
   S.manutencoes.push({
+    uid:novoUid(),
     data:document.getElementById('mmData').value,
     tipo:document.getElementById('mmTipo').value,
     km:+document.getElementById('mmKm').value,
@@ -4483,6 +4637,7 @@ function salvarManutencao(){
   });
   // Lança como despesa
   S.despesas.push({
+    uid:novoUid(),
     data:document.getElementById('mmData').value,
     cat:'🔧 Manutenção',
     desc:document.getElementById('mmTipo').value,
@@ -4562,14 +4717,14 @@ function salvarAbastecimento(){
   if(!S.abastecimentos)S.abastecimentos=[];
   const data=document.getElementById('cbData').value;
   S.abastecimentos.push({
-    id:Math.max(0,...S.abastecimentos.map(a=>a.id),0)+1,
+    id:Math.max(0,...S.abastecimentos.map(a=>a.id),0)+1,uid:novoUid(),
     data,valor,litros:+document.getElementById('cbLts').value||0,
     km:+document.getElementById('cbKm').value||0,
     obs:document.getElementById('cbObs').value,
     comprovante:comprovanteData||'',por:CURRENT?CURRENT.nome:''
   });
   // entra como despesa de combustível do caminhão
-  S.despesas.push({data,cat:'⛽ Combustível',desc:'Abastecimento'+(document.getElementById('cbObs').value?' — '+document.getElementById('cbObs').value:''),cidade:'',valor});
+  S.despesas.push({uid:novoUid(),data,cat:'⛽ Combustível',desc:'Abastecimento'+(document.getElementById('cbObs').value?' — '+document.getElementById('cbObs').value:''),cidade:'',valor});
   const km=+document.getElementById('cbKm').value;if(km>S.caminhao.km)S.caminhao.km=km;
   save();toast('Abastecimento registrado ⛽','success');renderCombustivel();
 }
@@ -4585,7 +4740,7 @@ function renderUsuarios(){
       <td><span class="text-mute">${u.senha}</span></td>
       <td><span class="badge ${u.role==='admin'?'b-purple':u.role==='gestor'?'b-blue':'b-green'}">${u.role}</span></td>
       <td>${u.unidade?LOCAIS[u.unidade].emoji+' '+LOCAIS[u.unidade].nome:'—'}</td>
-      <td>${u.user==='rafael'||u.user==='hiellen'?'<span class="text-mute" style="font-size:11px">protegido</span>':`<button class="btn btn-ghost btn-sm" onclick="excluirUsuario(${i})">🗑️</button>`}</td>
+      <td>${u.user==='rafael'||u.user==='hiellen'?'<span class="text-mute" style="font-size:11px">protegido</span>':`<button class="btn btn-ghost btn-sm" onclick="excluirUsuario('${encodeURIComponent(u.user)}')">🗑️</button>`}</td>
     </tr>`).join('');
 }
 function salvarUsuario(){
@@ -4595,11 +4750,14 @@ function salvarUsuario(){
   const role=document.getElementById('nuRole').value;
   if(!user||!nome||!senha)return toast('Preencha nome, usuário e senha','error');
   if(S.usuarios.find(u=>u.user===user))return toast('Esse usuário já existe','error');
-  S.usuarios.push({user,nome,senha,role,unidade:role==='caixa'?document.getElementById('nuUni').value:''});
+  S.usuarios.push({user,nome,senha,role,criadoEm:Date.now(),unidade:role==='caixa'?document.getElementById('nuUni').value:''});
   save();closeModal('modalNovoUsuario');renderUsuarios();toast('Login criado','success');
 }
-function excluirUsuario(i){
-  if(confirm('Excluir o login de '+S.usuarios[i].nome+'?')){S.usuarios.splice(i,1);save();renderUsuarios();toast('Login removido','success');}
+function excluirUsuario(u){
+  u=decodeURIComponent(u);
+  const i=S.usuarios.findIndex(x=>x.user===u);if(i<0)return;
+  if(u==='rafael'||u==='hiellen')return toast('Login protegido','error');
+  if(confirm('Excluir o login de '+S.usuarios[i].nome+'?')){registrarRemocao('usuarios',S.usuarios[i]);S.usuarios.splice(i,1);save();renderUsuarios();toast('Login removido','success');}
 }
 
 /* ================================================================
@@ -4620,20 +4778,23 @@ cloudInit(()=>{ iniciarApp(); });
 /* SINCRONIZAÇÃO AUTOMÁTICA DE FUNDO: a cada 90s, se houver algo neste aparelho que ainda
    não subiu, envia sozinho (transação que SOMA — nunca apaga). Assim tudo fica sincronizado
    sem ninguém apertar botão. Só envia quando há novidade e quando está conectado. */
-let _ultimoAutoSync='';
+/* REDE DE SEGURANÇA: a cada 90s, se este aparelho tem alteração que ainda não chegou na
+   nuvem (a gravação falhou, internet caiu), reenvia somando. Se não há nada pendente, não
+   grava nada (antes regravava o documento inteiro à toa e gastava a cota grátis). */
 setInterval(function(){
-  if(!CLOUD_ENABLED||!db||!_cloudReady||_applyingRemote||_pendingSave)return;
-  let json;try{json=JSON.stringify(S);}catch(e){return;}
-  if(json===_ultimoAutoSync)return; // nada novo desde o último envio automático
-  _ultimoAutoSync=json;
+  if(!CLOUD_ENABLED||!db||!_cloudReady||_applyingRemote||_pendingSave||!_sujo)return;
+  const rev=_rev;
   const ref=db.collection('lojao').doc('estado');
   db.runTransaction(async tx=>{
     const snap=await tx.get(ref);
     let out=S;
     if(snap.exists&&snap.data()&&snap.data().json){try{out=mergeForSave(JSON.parse(snap.data().json),S);}catch(e){out=S;}}
-    tx.set(ref,{json:JSON.stringify(out),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
-  }).catch(e=>{_ultimoAutoSync='';console.error('auto-sync',e);setCloudBadge(false);});
+    tx.set(ref,{json:JSON.stringify(enxugar(out)),ts:Date.now(),por:(typeof CURRENT!=='undefined'&&CURRENT)?CURRENT.nome:''});
+  }).then(()=>{if(_rev===rev)_sujo=false;})
+    .catch(e=>{console.error('auto-sync',e);setCloudBadge(false);});
 },90000);
+/* ARQUIVO MENSAL automático: 30s depois de abrir e a cada 30 min */
+setTimeout(()=>{arquivarHistorico();setInterval(arquivarHistorico,30*60*1000);},30000);
 </script>
 
 </body>
