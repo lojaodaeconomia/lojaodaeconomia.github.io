@@ -89,6 +89,7 @@
     .backdrop.show{display:block}
     .top h2{font-size:16px}.top p{display:none}.area{padding:16px}
   }
+.grecaptcha-badge{visibility:hidden}
 </style>
 </head>
 <body>
@@ -103,7 +104,7 @@
     <div class="field" style="text-align:left"><label>Senha</label><input id="lgPass" type="password" placeholder="••••••" onkeydown="if(event.key==='Enter')entrar()"/></div>
     <div id="lgErr" style="color:var(--coral);font-size:12.5px;min-height:18px;margin-bottom:6px"></div>
     <button class="btn btn-primary" style="width:100%;padding:13px;font-size:15px" onclick="entrar()">Entrar →</button>
-    <div id="lgVer" style="margin-top:14px;font-size:10.5px;color:#94A3B8"></div>
+    <div id="lgVer" style="margin-top:14px;font-size:10.5px;color:#94A3B8"></div><div style="margin-top:8px;font-size:9.5px;color:#94A3B8;text-align:center">Protegido por reCAPTCHA — <a href="https://policies.google.com/privacy" target="_blank" style="color:#94A3B8">Privacidade</a> e <a href="https://policies.google.com/terms" target="_blank" style="color:#94A3B8">Termos</a> do Google.</div>
   </div>
 </div>
 
@@ -261,7 +262,7 @@
 
 <script>
 /* ========= config ========= */
-const APP_VERSION='Marketing v2 · 02/10/2026';
+const APP_VERSION='Marketing v3 · 03/10/2026';
 const firebaseConfig={
   apiKey:"AIzaSyCpiBatJKueXfk7-Mshot9vX1C0iRfRmLw",
   authDomain:"lojao-da-economia.firebaseapp.com",
@@ -273,18 +274,34 @@ const firebaseConfig={
 /* SEGURANÇA DO BANCO (v24): o banco só aceita quem vem do site oficial (App Check / reCAPTCHA v3)
    e com sessão do Firebase (login anônimo automático — o caixa não percebe nada).
    Se algo disso falhar, o app segue tentando conectar normalmente (não trava a venda). */
-const RECAPTCHA_SITE_KEY=''; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+const RECAPTCHA_SITE_KEY='6LcJD90tAAAAAIkO7LNoLwGLsErkP3_aoFc2atjV'; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+/* carrega o reCAPTCHA; se não vier em 8s (internet ruim), segue SEM App Check nesta sessão —
+   o App Check esperaria o reCAPTCHA para sempre e o aparelho ficaria sem sincronizar */
+function _carregaRecaptcha(){
+  return new Promise(res=>{
+    if(!RECAPTCHA_SITE_KEY)return res(false);
+    const t=setTimeout(()=>res(false),8000);
+    const sc=document.createElement('script');
+    sc.src='https://www.google.com/recaptcha/api.js?render='+RECAPTCHA_SITE_KEY;
+    sc.onload=()=>{try{grecaptcha.ready(()=>{clearTimeout(t);res(true);});}catch(e){clearTimeout(t);res(false);}};
+    sc.onerror=()=>{clearTimeout(t);res(false);};
+    document.head.appendChild(sc);
+  });
+}
 function firebaseSeguro(){
   firebase.initializeApp(firebaseConfig);
-  try{ if(RECAPTCHA_SITE_KEY&&firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);}
+  return _carregaRecaptcha().then(ok=>{
+  if(ok){ try{ if(firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);} }
+  else console.warn('reCAPTCHA indisponível — conectando sem App Check nesta sessão');
   db=firebase.firestore();
-  if(!firebase.auth)return Promise.resolve();
+  if(!firebase.auth)return;
   return new Promise(res=>{
     const t=setTimeout(res,6000); // sem resposta em 6s: segue assim mesmo
     try{
       const stop=firebase.auth().onAuthStateChanged(u=>{ if(u){clearTimeout(t);stop();res();} });
       firebase.auth().signInAnonymously().catch(e=>{console.error('auth',e);clearTimeout(t);res();});
     }catch(e){console.error('auth',e);clearTimeout(t);res();}
+  });
   });
 }
 /* login exclusivo (uma pessoa) */

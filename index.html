@@ -666,6 +666,7 @@
     .chart-wrap,.chart-wrap.lg{height:200px}
   }
   @media(max-width:360px){ .kpi-grid{grid-template-columns:1fr} }
+.grecaptcha-badge{visibility:hidden}
 </style>
 </head>
 <body>
@@ -683,7 +684,7 @@
     <div id="loginErro" style="color:#E11D48;font-size:12.5px;min-height:18px;margin-bottom:6px"></div>
     <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px" onclick="fazerLogin()">Entrar →</button>
     <button class="btn btn-ghost" style="width:100%;justify-content:center;padding:9px;font-size:12.5px;margin-top:8px" onclick="forcarAtualizacao()">🔄 Atualizar para a versão mais recente</button>
-    <div style="margin-top:16px;font-size:11.5px;color:#94A3B8;text-align:center;line-height:1.5">Use seu usuário e senha.<br>Em caso de dúvida, fale com a gestão.</div>
+    <div style="margin-top:16px;font-size:11.5px;color:#94A3B8;text-align:center;line-height:1.5">Use seu usuário e senha.<br>Em caso de dúvida, fale com a gestão.</div><div style="margin-top:8px;font-size:9.5px;color:#94A3B8;text-align:center">Protegido por reCAPTCHA — <a href="https://policies.google.com/privacy" target="_blank" style="color:#94A3B8">Privacidade</a> e <a href="https://policies.google.com/terms" target="_blank" style="color:#94A3B8">Termos</a> do Google.</div>
     <div style="margin-top:10px;font-size:10px;color:#CBD5E1;text-align:center" id="loginVersao"></div>
   </div>
 </div>
@@ -1836,7 +1837,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v24 · 02/10/2026';
+const APP_VERSION='v25 · 03/10/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -1880,18 +1881,34 @@ const CLOUD_ENABLED = !!(firebaseConfig && firebaseConfig.apiKey && firebaseConf
 /* SEGURANÇA DO BANCO (v24): o banco só aceita quem vem do site oficial (App Check / reCAPTCHA v3)
    e com sessão do Firebase (login anônimo automático — o caixa não percebe nada).
    Se algo disso falhar, o app segue tentando conectar normalmente (não trava a venda). */
-const RECAPTCHA_SITE_KEY=''; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+const RECAPTCHA_SITE_KEY='6LcJD90tAAAAAIkO7LNoLwGLsErkP3_aoFc2atjV'; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+/* carrega o reCAPTCHA; se não vier em 8s (internet ruim), segue SEM App Check nesta sessão —
+   o App Check esperaria o reCAPTCHA para sempre e o aparelho ficaria sem sincronizar */
+function _carregaRecaptcha(){
+  return new Promise(res=>{
+    if(!RECAPTCHA_SITE_KEY)return res(false);
+    const t=setTimeout(()=>res(false),8000);
+    const sc=document.createElement('script');
+    sc.src='https://www.google.com/recaptcha/api.js?render='+RECAPTCHA_SITE_KEY;
+    sc.onload=()=>{try{grecaptcha.ready(()=>{clearTimeout(t);res(true);});}catch(e){clearTimeout(t);res(false);}};
+    sc.onerror=()=>{clearTimeout(t);res(false);};
+    document.head.appendChild(sc);
+  });
+}
 function firebaseSeguro(){
   firebase.initializeApp(firebaseConfig);
-  try{ if(RECAPTCHA_SITE_KEY&&firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);}
+  return _carregaRecaptcha().then(ok=>{
+  if(ok){ try{ if(firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);} }
+  else console.warn('reCAPTCHA indisponível — conectando sem App Check nesta sessão');
   db=firebase.firestore();
-  if(!firebase.auth)return Promise.resolve();
+  if(!firebase.auth)return;
   return new Promise(res=>{
     const t=setTimeout(res,6000); // sem resposta em 6s: segue assim mesmo
     try{
       const stop=firebase.auth().onAuthStateChanged(u=>{ if(u){clearTimeout(t);stop();res();} });
       firebase.auth().signInAnonymously().catch(e=>{console.error('auth',e);clearTimeout(t);res();});
     }catch(e){console.error('auth',e);clearTimeout(t);res();}
+  });
   });
 }
 
