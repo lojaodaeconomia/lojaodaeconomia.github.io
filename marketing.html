@@ -10,6 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 <style>
   :root{
     --navy:#163A9E;--navy-dark:#102A75;--blue:#1F46BE;--blue-light:#3358CC;
@@ -259,7 +261,7 @@
 
 <script>
 /* ========= config ========= */
-const APP_VERSION='Marketing v1 · 03/06/2026';
+const APP_VERSION='Marketing v2 · 02/10/2026';
 const firebaseConfig={
   apiKey:"AIzaSyCpiBatJKueXfk7-Mshot9vX1C0iRfRmLw",
   authDomain:"lojao-da-economia.firebaseapp.com",
@@ -268,6 +270,23 @@ const firebaseConfig={
   messagingSenderId:"101528989586",
   appId:"1:101528989586:web:7ef9b0bbbdb43c96925b4b"
 };
+/* SEGURANÇA DO BANCO (v24): o banco só aceita quem vem do site oficial (App Check / reCAPTCHA v3)
+   e com sessão do Firebase (login anônimo automático — o caixa não percebe nada).
+   Se algo disso falhar, o app segue tentando conectar normalmente (não trava a venda). */
+const RECAPTCHA_SITE_KEY=''; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+function firebaseSeguro(){
+  firebase.initializeApp(firebaseConfig);
+  try{ if(RECAPTCHA_SITE_KEY&&firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);}
+  db=firebase.firestore();
+  if(!firebase.auth)return Promise.resolve();
+  return new Promise(res=>{
+    const t=setTimeout(res,6000); // sem resposta em 6s: segue assim mesmo
+    try{
+      const stop=firebase.auth().onAuthStateChanged(u=>{ if(u){clearTimeout(t);stop();res();} });
+      firebase.auth().signInAnonymously().catch(e=>{console.error('auth',e);clearTimeout(t);res();});
+    }catch(e){console.error('auth',e);clearTimeout(t);res();}
+  });
+}
 /* login exclusivo (uma pessoa) */
 const MKT_USER='hiellen', MKT_SENHA='marketing@2026';
 
@@ -295,8 +314,7 @@ function boot(){
 /* ========= nuvem (lê os mesmos dados da gestão; grava só o próprio doc de marketing) ========= */
 function conectar(){
   try{
-    firebase.initializeApp(firebaseConfig);
-    db=firebase.firestore();
+    firebaseSeguro().then(()=>{
     db.collection('lojao').doc('estado').onSnapshot(snap=>{
       document.getElementById('cloudTag').textContent='☁️';
       document.getElementById('cloudTag').title='Conectado — dados ao vivo';
@@ -307,6 +325,7 @@ function conectar(){
       if(snap.exists&&snap.data().json){try{MKT=JSON.parse(snap.data().json);}catch(e){}}
       if(!MKT.posts)MKT.posts=[];
       if(pagina==='planejador')renderPlanejador();
+    });
     });
   }catch(e){document.getElementById('cloudTag').textContent='⚠️';}
 }

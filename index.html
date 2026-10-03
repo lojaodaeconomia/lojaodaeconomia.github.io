@@ -14,6 +14,8 @@
 <!-- Firebase (nuvem) — usado quando a configuração estiver preenchida -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 <style>
   :root{
     --azul:#1B4FA0;
@@ -1834,7 +1836,7 @@
    ESTADO + PERSISTÊNCIA
 ================================================================ */
 const STORE_KEY='lojaoEconomia_v4';
-const APP_VERSION='v23 · 30/09/2026';
+const APP_VERSION='v24 · 02/10/2026';
 /* Força baixar a versão mais recente, contornando o cache (funciona no celular) */
 function forcarAtualizacao(){
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('upd_')).forEach(k=>sessionStorage.removeItem(k));}catch(e){}
@@ -1874,6 +1876,24 @@ const firebaseConfig = {
   appId: "1:101528989586:web:7ef9b0bbbdb43c96925b4b"
 };
 const CLOUD_ENABLED = !!(firebaseConfig && firebaseConfig.apiKey && firebaseConfig.projectId);
+
+/* SEGURANÇA DO BANCO (v24): o banco só aceita quem vem do site oficial (App Check / reCAPTCHA v3)
+   e com sessão do Firebase (login anônimo automático — o caixa não percebe nada).
+   Se algo disso falhar, o app segue tentando conectar normalmente (não trava a venda). */
+const RECAPTCHA_SITE_KEY=''; // chave PÚBLICA do site (reCAPTCHA v3) — vazia = App Check desligado
+function firebaseSeguro(){
+  firebase.initializeApp(firebaseConfig);
+  try{ if(RECAPTCHA_SITE_KEY&&firebase.appCheck) firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),true); }catch(e){console.error('appcheck',e);}
+  db=firebase.firestore();
+  if(!firebase.auth)return Promise.resolve();
+  return new Promise(res=>{
+    const t=setTimeout(res,6000); // sem resposta em 6s: segue assim mesmo
+    try{
+      const stop=firebase.auth().onAuthStateChanged(u=>{ if(u){clearTimeout(t);stop();res();} });
+      firebase.auth().signInAnonymously().catch(e=>{console.error('auth',e);clearTimeout(t);res();});
+    }catch(e){console.error('auth',e);clearTimeout(t);res();}
+  });
+}
 
 /* Unidades da empresa (mesma loja, três pontos de venda) */
 const LOCAIS={
@@ -2496,10 +2516,10 @@ function cloudInit(onReady){
   let chamou=false;const pronto=ok=>{if(chamou)return;chamou=true;onReady(ok);};
   setTimeout(()=>pronto(false),9000); // fallback: não trava se a nuvem demorar
   try{
-    firebase.initializeApp(firebaseConfig);
-    db=firebase.firestore();
-    const ref=db.collection('lojao').doc('estado');
-    sincronizarNuvem(ref,pronto);
+    firebaseSeguro().then(()=>{
+      const ref=db.collection('lojao').doc('estado');
+      sincronizarNuvem(ref,pronto);
+    });
     // redesenha quando a pessoa parar de editar (sai do formulário / fica ociosa).
     setInterval(()=>{ if(_pendingRemote&&!usuarioEditando()){_pendingRemote=false;rerenderAtual();} },1500);
   }catch(e){console.error(e);setCloudBadge(false);pronto(false);}
